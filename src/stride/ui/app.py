@@ -101,7 +101,7 @@ def load_project(project_path: str) -> tuple[bool, str]:
         (success, message) where success is True if loaded successfully
     """
     global _loaded_projects, _current_project_path
-    
+
     try:
         path = Path(project_path).resolve()
         path_str = str(path)
@@ -334,7 +334,6 @@ def create_app(  # noqa: C901
                                 className="small mb-2",
                                 style={"fontSize": "0.8rem"},
                             ),
-                            
                             html.Div(
                                 [
                                     dcc.Dropdown(
@@ -986,18 +985,18 @@ def create_app(  # noqa: C901
         """Refresh the project switcher dropdown options with latest recent projects."""
         if not n_clicks:
             raise PreventUpdate
- 
+
         # Get current project info
         data_handler = get_current_data_handler()
         if not data_handler:
             raise PreventUpdate
- 
+
         current_project_name = data_handler.project.config.project_id
- 
+
         # Build fresh dropdown options with deduplication by project_id
         dropdown_options = [{"label": current_project_name, "value": current_path}]
         seen_project_ids = {current_project_name}
- 
+
         # Get recent projects
         recent = get_recent_projects()
         for proj in recent:
@@ -1008,7 +1007,7 @@ def create_app(  # noqa: C901
                     {"label": proj.get("name", project_id), "value": proj_path}
                 )
                 seen_project_ids.add(project_id)
- 
+
         return dropdown_options
 
     # Regenerate home layout when project changes
@@ -1269,7 +1268,7 @@ def create_app_no_project(
                                     "padding": "0",
                                 },
                                 title="Refresh project list",
-                            ),                           
+                            ),
                         ]
                     ),
                     html.Hr(className="bg-white"),
