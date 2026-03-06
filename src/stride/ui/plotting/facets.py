@@ -4,14 +4,17 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from stride.ui.palette import ColorCategory
+
 from .utils import (
+    DEFAULT_PLOTLY_TEMPLATE,
     TRANSPARENT,
     calculate_subplot_layout,
     create_faceted_traces,
     create_seasonal_annotations,
     determine_facet_layout,
+    get_axis_style,
     get_hoverlabel_style,
-    get_plotly_template,
     update_faceted_layout,
 )
 
@@ -47,7 +50,7 @@ def add_seasonal_line_traces(
                 "mode": "lines",
                 "name": str(year),
                 "line": dict(
-                    color=color_generator.get_color(str(year)),
+                    color=color_generator.get_color(str(year), ColorCategory.MODEL_YEAR),
                     dash=line_styles[j % len(line_styles)],
                     shape="spline",
                 ),
@@ -61,7 +64,7 @@ def add_seasonal_line_traces(
 
 
 def seasonal_load_lines(
-    df: pd.DataFrame, color_generator: "ColorManager", template: str = "plotly_dark"
+    df: pd.DataFrame, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE
 ) -> go.Figure:
     """Create faceted subplots for seasonal load lines."""
     if df.empty:
@@ -94,11 +97,13 @@ def seasonal_load_lines(
     add_seasonal_line_traces(fig, df, layout_config, color_generator)
 
     # Update layout
+    axis = get_axis_style(template)
+
     if layout_config["facet_col"]:
         annotations_list = create_seasonal_annotations(layout_config)
 
         fig.update_layout(
-            template=get_plotly_template(),
+            template=template,
             plot_bgcolor=TRANSPARENT,
             paper_bgcolor=TRANSPARENT,
             margin=dict(l=60, r=20, t=80, b=80),
@@ -114,19 +119,19 @@ def seasonal_load_lines(
             range=[0, 23],
             showgrid=True,
             gridwidth=1,
-            gridcolor="lightgray",
+            gridcolor=axis["grid_color"],
             tickvals=[0, 6, 12, 18, 23],
             ticktext=["0", "6", "12", "18", "23"],
             showline=True,
             linewidth=1,
-            linecolor="black",
+            linecolor=axis["axis_color"],
             mirror=True,
             title_text="",
         )
         fig.update_yaxes(
             showline=True,
             linewidth=1,
-            linecolor="black",
+            linecolor=axis["axis_color"],
             mirror=True,
             title_text="",
         )
@@ -138,14 +143,14 @@ def seasonal_load_lines(
                     fig.add_vline(
                         x=hour,
                         line_dash="dot",
-                        line_color="lightgray",
+                        line_color=axis["vline_color"],
                         line_width=1,
                         row=row_idx,
                         col=col_idx,
                     )
     else:
         fig.update_layout(
-            template=get_plotly_template(),
+            template=template,
             plot_bgcolor=TRANSPARENT,
             paper_bgcolor=TRANSPARENT,
             margin=dict(l=20, r=20, t=20, b=40),
@@ -155,15 +160,15 @@ def seasonal_load_lines(
                 range=[0, 23],
                 showgrid=True,
                 gridwidth=1,
-                gridcolor="lightgray",
+                gridcolor=axis["grid_color"],
                 tickvals=[0, 6, 12, 18, 23],
                 ticktext=["0", "6", "12", "18", "23"],
                 showline=True,
                 linewidth=1,
-                linecolor="black",
+                linecolor=axis["axis_color"],
                 mirror=True,
             ),
-            yaxis=dict(showline=True, linewidth=1, linecolor="black", mirror=True),
+            yaxis=dict(showline=True, linewidth=1, linecolor=axis["axis_color"], mirror=True),
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
             hoverlabel=hoverlabel_style,
             hovermode="x unified",
@@ -171,7 +176,7 @@ def seasonal_load_lines(
 
         # Add vertical lines for single plot
         for hour in [6, 12, 18]:
-            fig.add_vline(x=hour, line_dash="dot", line_color="lightgray", line_width=1)
+            fig.add_vline(x=hour, line_dash="dot", line_color=axis["vline_color"], line_width=1)
 
     return fig
 
@@ -227,7 +232,7 @@ def _add_stacked_area_traces(
                     "y": category_df["value"],
                     "mode": "lines",
                     "name": category,
-                    "line": dict(color=color_generator.get_color(category)),
+                    "line": dict(color=color_generator.get_color(category, ColorCategory.METRIC)),
                     "fill": "tonexty" if j > 0 else "tozeroy",
                     "stackgroup": f"facet_{i}" if layout_config["facet_col"] else "one",
                     "showlegend": show_legend,
@@ -252,7 +257,8 @@ def _add_stacked_area_traces(
                 "name": str(facet_value) if layout_config["facet_col"] else "Load",
                 "line": dict(
                     color=color_generator.get_color(
-                        str(facet_value) if layout_config["facet_col"] else "Load"
+                        str(facet_value) if layout_config["facet_col"] else "Load",
+                        ColorCategory.METRIC,
                     )
                 ),
                 "fill": "tozeroy",
@@ -266,7 +272,7 @@ def _add_stacked_area_traces(
 
 
 def seasonal_load_area(
-    df: pd.DataFrame, color_generator: "ColorManager", template: str = "plotly_dark"
+    df: pd.DataFrame, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE
 ) -> go.Figure:
     """Create faceted area charts for seasonal load patterns."""
     if df.empty:
@@ -303,11 +309,13 @@ def seasonal_load_area(
     )
 
     # Update layout
+    axis = get_axis_style(template)
+
     if layout_config["facet_col"]:
         annotations_list = create_seasonal_annotations(layout_config)
 
         fig.update_layout(
-            template=get_plotly_template(),
+            template=template,
             plot_bgcolor=TRANSPARENT,
             paper_bgcolor=TRANSPARENT,
             margin=dict(l=60, r=20, t=80, b=80),
@@ -325,19 +333,25 @@ def seasonal_load_area(
             range=[0, 23],
             showgrid=True,
             gridwidth=1,
-            gridcolor="lightgray",
+            gridcolor=axis["grid_color"],
             tickvals=[0, 6, 12, 18, 23],
             ticktext=["0", "6", "12", "18", "23"],
             showline=True,
             linewidth=1,
-            linecolor="black",
+            linecolor=axis["axis_color"],
             mirror=True,
             title_text="",
         )
-        fig.update_yaxes(showline=True, linewidth=1, linecolor="black", mirror=True, title_text="")
+        fig.update_yaxes(
+            showline=True,
+            linewidth=1,
+            linecolor=axis["axis_color"],
+            mirror=True,
+            title_text="",
+        )
     else:
         fig.update_layout(
-            template=get_plotly_template(),
+            template=template,
             plot_bgcolor=TRANSPARENT,
             paper_bgcolor=TRANSPARENT,
             margin=dict(l=20, r=20, t=20, b=40),
@@ -347,15 +361,15 @@ def seasonal_load_area(
                 range=[0, 23],
                 showgrid=True,
                 gridwidth=1,
-                gridcolor="lightgray",
+                gridcolor=axis["grid_color"],
                 tickvals=[0, 6, 12, 18, 23],
                 ticktext=["0", "6", "12", "18", "23"],
                 showline=True,
                 linewidth=1,
-                linecolor="black",
+                linecolor=axis["axis_color"],
                 mirror=True,
             ),
-            yaxis=dict(showline=True, linewidth=1, linecolor="black", mirror=True),
+            yaxis=dict(showline=True, linewidth=1, linecolor=axis["axis_color"], mirror=True),
             showlegend=has_breakdown,
             legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02)
             if has_breakdown
@@ -373,7 +387,7 @@ def faceted_time_series(
     chart_type: str = "Line",
     group_by: str | None = None,
     value_col: str = "value",
-    template: str = "plotly_dark",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
 ) -> go.Figure:
     """
     Create faceted subplots for each scenario with shared legend.
@@ -421,7 +435,7 @@ def faceted_time_series(
         fig.add_trace(trace, row=row, col=col)
 
     # Update layout
-    update_faceted_layout(fig, rows, group_by)
+    update_faceted_layout(fig, rows, group_by, template=template)
 
     # Add hover styling
     fig.update_layout(

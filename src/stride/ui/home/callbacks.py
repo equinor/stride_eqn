@@ -13,6 +13,7 @@ from stride.ui.plotting.utils import (
     get_hoverlabel_style,
     get_warning_annotation_style,
 )
+from stride.ui.palette import ColorCategory
 from stride.ui.settings.layout import get_temp_color_edits
 
 if TYPE_CHECKING:
@@ -135,7 +136,9 @@ def update_home_scenario_comparison(  # noqa: C901
 
                     if not secondary_df.empty:
                         # Get scenario color from color manager
-                        scenario_color = plotter.color_manager.get_color(scenario)
+                        scenario_color = plotter.color_manager.get_color(
+                            scenario, ColorCategory.SCENARIO
+                        )
 
                         # Add background line when no breakdown (total only)
                         if breakdown_value is None:
@@ -300,7 +303,9 @@ def update_home_sector_breakdown(  # noqa: C901
 
                     if not secondary_df.empty:
                         # Get scenario color from color manager
-                        scenario_color = plotter.color_manager.get_color(scenario)
+                        scenario_color = plotter.color_manager.get_color(
+                            scenario, ColorCategory.SCENARIO
+                        )
 
                         # Add background line when no breakdown (total only)
                         if breakdown_value is None:
@@ -557,7 +562,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                                 name=category,
                                                 mode="lines",
                                                 line=dict(
-                                                    color=plotter.color_manager.get_color(category)
+                                                    color=plotter.color_manager.get_color(
+                                                        category, ColorCategory.METRIC
+                                                    )
                                                 ),
                                                 fill="tonexty" if j > 0 else "tozeroy",
                                                 stackgroup="one",
@@ -579,7 +586,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                                 name=category,
                                                 mode="lines+markers",
                                                 line=dict(
-                                                    color=plotter.color_manager.get_color(category)
+                                                    color=plotter.color_manager.get_color(
+                                                        category, ColorCategory.METRIC
+                                                    )
                                                 ),
                                                 showlegend=show_legend,
                                                 legendgroup=category,
@@ -607,7 +616,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                             name=scenario,
                                             mode="lines",
                                             line=dict(
-                                                color=plotter.color_manager.get_color(scenario)
+                                                color=plotter.color_manager.get_color(
+                                                    scenario, ColorCategory.SCENARIO
+                                                )
                                             ),
                                             fill="tozeroy",
                                             showlegend=False,
@@ -627,7 +638,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                             name=scenario,
                                             mode="lines+markers",
                                             line=dict(
-                                                color=plotter.color_manager.get_color(scenario)
+                                                color=plotter.color_manager.get_color(
+                                                    scenario, ColorCategory.SCENARIO
+                                                )
                                             ),
                                             showlegend=False,
                                             hovertemplate="Year: %{x}<br>"
@@ -647,7 +660,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                         if not scenario_secondary.empty:
                             row = (idx // cols) + 1
                             col = (idx % cols) + 1
-                            scenario_color = plotter.color_manager.get_color(scenario)
+                            scenario_color = plotter.color_manager.get_color(
+                                scenario, ColorCategory.SCENARIO
+                            )
 
                             fig.add_trace(
                                 go.Scatter(
@@ -878,7 +893,7 @@ def register_home_callbacks(  # noqa: C901
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -970,7 +985,7 @@ def register_home_callbacks(  # noqa: C901
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -1062,7 +1077,7 @@ def register_home_callbacks(  # noqa: C901
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -1154,7 +1169,7 @@ def register_home_callbacks(  # noqa: C901
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3

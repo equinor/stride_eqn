@@ -276,6 +276,44 @@ body {
     color: #ffffff !important;
 }
 
+/* Dropdown input field, arrow, and multi-value styling */
+.dark-theme .Select-input > input {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .Select-arrow {
+    border-top-color: var(--dropdown-text) !important;
+}
+
+.dark-theme .Select-arrow-zone:hover .Select-arrow {
+    border-top-color: var(--text-primary) !important;
+}
+
+.dark-theme .Select--single > .Select-control .Select-value {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .Select--multi .Select-value {
+    background-color: var(--accent-primary) !important;
+    border-color: var(--accent-primary) !important;
+    color: #ffffff !important;
+}
+
+.dark-theme .Select--multi .Select-value-icon:hover {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    color: #ffffff !important;
+}
+
+.dark-theme .Select.is-focused > .Select-control {
+    border-color: var(--accent-primary) !important;
+    background-color: var(--dropdown-bg) !important;
+}
+
+.dark-theme .Select.is-open > .Select-control {
+    background-color: var(--dropdown-bg) !important;
+    border-color: var(--accent-primary) !important;
+}
+
 /* Dash Bootstrap Components Dropdowns */
 .dark-theme .dropdown-menu {
     background-color: var(--dropdown-bg) !important;

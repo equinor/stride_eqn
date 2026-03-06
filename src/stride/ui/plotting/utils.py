@@ -4,17 +4,64 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from stride.ui.palette import ColorCategory
+
 if TYPE_CHECKING:
     from stride.ui.color_manager import ColorManager
 
 TRANSPARENT = "rgba(0, 0, 0, 0)"
 DEFAULT_BAR_COLOR = "rgba(0,0,200,0.8)"
+
+# Plotly template names
+DEFAULT_PLOTLY_TEMPLATE = "plotly_white"
+DARK_PLOTLY_TEMPLATE = "plotly_dark"
+
+# CSS theme class names (applied to DOM elements)
+DEFAULT_CSS_THEME = "light-theme"
+DARK_CSS_THEME = "dark-theme"
+
 # Theme-aware neutral gray colors
 LIGHT_THEME_GRAY = "rgba(100, 100, 100, 0.8)"  # Darker gray for light backgrounds
 DARK_THEME_GRAY = "rgba(180, 180, 180, 0.8)"  # Lighter gray for dark backgrounds
 # Theme-aware background colors (matching CSS theme --bg-primary)
 DARK_THEME_BG = "rgb(26, 26, 26)"  # Dark background matching CSS #1a1a1a
 LIGHT_THEME_BG = "rgb(255, 255, 255)"  # White background matching CSS #ffffff
+
+# Theme-aware grid and axis line colors
+LIGHT_GRID_COLOR = "rgba(0, 0, 0, 0.15)"  # Visible on white backgrounds
+DARK_GRID_COLOR = "rgba(255, 255, 255, 0.15)"  # Visible on dark backgrounds
+LIGHT_AXIS_COLOR = "rgba(0, 0, 0, 0.4)"  # Axis lines on white backgrounds
+DARK_AXIS_COLOR = "rgba(255, 255, 255, 0.4)"  # Axis lines on dark backgrounds
+LIGHT_VLINE_COLOR = "rgba(0, 0, 0, 0.18)"  # Subtle reference lines on white
+DARK_VLINE_COLOR = "rgba(255, 255, 255, 0.18)"  # Subtle reference lines on dark
+
+
+def get_axis_style(template: str) -> dict[str, str]:
+    """Return theme-aware colors for grids, axis lines, and reference vlines.
+
+    Parameters
+    ----------
+    template : str
+        Plotly template name (e.g., 'plotly_white', 'plotly_dark')
+
+    Returns
+    -------
+    dict
+        Keys: ``grid_color``, ``axis_color``, ``vline_color``, ``bg_color``
+    """
+    if "dark" in template.lower():
+        return {
+            "grid_color": DARK_GRID_COLOR,
+            "axis_color": DARK_AXIS_COLOR,
+            "vline_color": DARK_VLINE_COLOR,
+            "bg_color": DARK_THEME_BG,
+        }
+    return {
+        "grid_color": LIGHT_GRID_COLOR,
+        "axis_color": LIGHT_AXIS_COLOR,
+        "vline_color": LIGHT_VLINE_COLOR,
+        "bg_color": LIGHT_THEME_BG,
+    }
 
 
 def get_error_annotation_style(template: str) -> dict[str, Any]:
@@ -114,16 +161,19 @@ def get_background_color(template: str) -> str:
 
 
 def get_plotly_template() -> str:
-    """
-    Get the Plotly template for charts.
+    """Get the default Plotly template for charts.
+
+    .. deprecated::
+        Use :data:`DEFAULT_PLOTLY_TEMPLATE` directly instead.  The low-level
+        plotting functions now honour their *template* parameter rather than
+        calling this helper.
 
     Returns
     -------
     str
-        Plotly template name (defaults to 'plotly_dark' to match app's default theme)
+        Plotly template name
     """
-    # Default to dark theme to match the app's default
-    return "plotly_dark"
+    return DEFAULT_PLOTLY_TEMPLATE
 
 
 def get_hoverlabel_style(template: str) -> dict[str, Any]:
@@ -448,7 +498,7 @@ def create_time_series_line_traces(
                     mode="lines",
                     name=str(year),
                     line=dict(
-                        color=color_generator.get_color(str(year)),
+                        color=color_generator.get_color(str(year), ColorCategory.MODEL_YEAR),
                         dash=line_styles[i % len(line_styles)],
                     ),
                     showlegend=True,
@@ -479,7 +529,7 @@ def create_time_series_line_traces(
                         mode="lines",
                         name=legend_name,
                         line=dict(
-                            color=color_generator.get_color(category),
+                            color=color_generator.get_color(category, ColorCategory.METRIC),
                             dash=line_style,
                         ),
                         legendgroup=category,
@@ -523,7 +573,9 @@ def create_time_series_area_traces(
                     y=year_df["value"],
                     mode="lines",
                     name=str(year),
-                    line=dict(color=color_generator.get_color(str(year))),
+                    line=dict(
+                        color=color_generator.get_color(str(year), ColorCategory.MODEL_YEAR)
+                    ),
                     fill="tozeroy",
                     showlegend=True,
                 )
@@ -551,7 +603,7 @@ def create_time_series_area_traces(
                         y=category_df["value"],
                         mode="lines",
                         name=legend_name,
-                        line=dict(color=color_generator.get_color(category)),
+                        line=dict(color=color_generator.get_color(category, ColorCategory.METRIC)),
                         fill="tonexty" if j > 0 else "tozeroy",
                         stackgroup=f"year_{year}",
                         legendgroup=category,
@@ -658,6 +710,7 @@ def create_faceted_traces(
                     j,
                     show_legend,
                     category,
+                    ColorCategory.METRIC,
                 )
                 traces_info.append((trace, row, col))
     else:
@@ -670,7 +723,15 @@ def create_faceted_traces(
                 continue
 
             trace = _create_single_trace(
-                scenario_df, scenario, color_generator, chart_type, value_col, 0, False, scenario
+                scenario_df,
+                scenario,
+                color_generator,
+                chart_type,
+                value_col,
+                0,
+                False,
+                scenario,
+                ColorCategory.SCENARIO,
             )
             traces_info.append((trace, row, col))
 
@@ -686,13 +747,14 @@ def _create_single_trace(
     stack_index: int,
     show_legend: bool,
     legend_group: str,
+    category: ColorCategory | None = None,
 ) -> go.Scatter:
     """Create a single trace for faceted plots."""
     base_kwargs: dict[str, Any] = {
         "x": data_df["year"],
         "y": data_df[value_col],
         "name": name,
-        "line": dict(color=color_generator.get_color(legend_group)),
+        "line": dict(color=color_generator.get_color(legend_group, category)),
         "showlegend": show_legend,
         "legendgroup": legend_group,
     }
@@ -715,7 +777,12 @@ def _create_single_trace(
     return go.Scatter(**base_kwargs)
 
 
-def update_faceted_layout(fig: go.Figure, rows: int, group_by: str | None = None) -> None:
+def update_faceted_layout(
+    fig: go.Figure,
+    rows: int,
+    group_by: str | None = None,
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
+) -> None:
     """
     Update layout for faceted time series plots.
 
@@ -727,8 +794,11 @@ def update_faceted_layout(fig: go.Figure, rows: int, group_by: str | None = None
         Number of subplot rows
     group_by : str, optional
         Group by column name
+    template : str
+        Plotly template name for theme-aware styling
     """
     height = 400 if rows == 1 else 600 if rows == 2 else 800
+    axis = get_axis_style(template)
 
     fig.update_layout(
         plot_bgcolor=TRANSPARENT,
@@ -741,5 +811,14 @@ def update_faceted_layout(fig: go.Figure, rows: int, group_by: str | None = None
         height=height,
     )
 
-    fig.update_xaxes(title_text="Year")
-    fig.update_yaxes(title_text="Energy Consumption (MWh)", col=1)
+    fig.update_xaxes(
+        title_text="Year",
+        gridcolor=axis["grid_color"],
+        linecolor=axis["axis_color"],
+    )
+    fig.update_yaxes(
+        title_text="Energy Consumption (MWh)",
+        col=1,
+        gridcolor=axis["grid_color"],
+        linecolor=axis["axis_color"],
+    )

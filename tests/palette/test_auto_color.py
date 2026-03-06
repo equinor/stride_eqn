@@ -86,7 +86,7 @@ def test_color_cycling() -> None:
 
     palette = ColorPalette()
 
-    # The Prism theme has multiple colors, add more labels than theme has colors
+    # The metric theme has multiple colors, add more labels than theme has colors
     # to test cycling behavior
     num_labels = 20
     labels = [f"Label{i}" for i in range(num_labels)]

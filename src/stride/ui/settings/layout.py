@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from stride.ui.color_manager import ColorManager
+from stride.ui.palette import ColorCategory
 
 # Store for temporarily edited colors before saving
 _temp_color_edits: dict[str, str] = {}
@@ -46,15 +47,15 @@ def create_settings_layout(
     # Extract colors for each category and convert to RGBA for display
     scenario_colors = {}
     for label in structured_palette.get("scenarios", {}):
-        scenario_colors[label] = color_manager.get_color(label)
+        scenario_colors[label] = color_manager.get_color(label, ColorCategory.SCENARIO)
 
     model_year_colors = {}
     for label in structured_palette.get("model_years", {}):
-        model_year_colors[label] = color_manager.get_color(label)
+        model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
     metric_colors = {}
     for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label)
+        metric_colors[label] = color_manager.get_color(label, ColorCategory.METRIC)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
@@ -619,15 +620,15 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
     # Extract colors for each category and convert to RGBA for display
     scenario_colors = {}
     for label in structured_palette.get("scenarios", {}):
-        scenario_colors[label] = color_manager.get_color(label)
+        scenario_colors[label] = color_manager.get_color(label, ColorCategory.SCENARIO)
 
     model_year_colors = {}
     for label in structured_palette.get("model_years", {}):
-        model_year_colors[label] = color_manager.get_color(label)
+        model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
     metric_colors = {}
     for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label)
+        metric_colors[label] = color_manager.get_color(label, ColorCategory.METRIC)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()

@@ -4,13 +4,14 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from . import facets, simple
+from .utils import DEFAULT_PLOTLY_TEMPLATE
 
 if TYPE_CHECKING:
     from stride.ui.color_manager import ColorManager
 
 
 class StridePlots:
-    def __init__(self, color_generator: "ColorManager", template: str = "plotly_white"):
+    def __init__(self, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE):
         """
         Initialize StridePlots with a color generator function.
 

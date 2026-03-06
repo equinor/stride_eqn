@@ -16,6 +16,8 @@ from stride.api.utils import (
 )
 from stride.ui.plotting.utils import get_error_annotation_style, get_neutral_color
 
+from stride.ui.palette import ColorCategory
+
 if TYPE_CHECKING:
     from stride.api import APIClient
     from stride.ui.plotting import StridePlots
@@ -441,7 +443,9 @@ def update_peak_plot(
 
                 if not secondary_df.empty:
                     # Get scenario color from color manager
-                    scenario_color = plotter.color_manager.get_color(scenario)
+                    scenario_color = plotter.color_manager.get_color(
+                        scenario, ColorCategory.SCENARIO
+                    )
 
                     # Add secondary metric as a line trace on the right y-axis
                     fig.add_trace(
