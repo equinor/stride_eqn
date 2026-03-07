@@ -8,10 +8,12 @@ from stride.ui.palette import ColorPalette
 
 def test_color_manager_updates_with_new_palette() -> None:
     """Test that ColorManager updates when a new palette is provided."""
-    # Create first palette
-    palette1 = ColorPalette({"Label1": "#FF0000", "Label2": "#00FF00"})
+    # Create first palette with labels in the sectors category
+    palette1 = ColorPalette(
+        {"scenarios": {}, "model_years": {}, "metrics": {"Label1": "#FF0000", "Label2": "#00FF00"}}
+    )
     cm1 = ColorManager(palette1)
-    cm1.initialize_colors(["Label1", "Label2"])
+    cm1.initialize_colors([], sectors=["Label1", "Label2"])
 
     # Get colors from first palette
     color1_label1 = cm1.get_color("Label1")
@@ -22,9 +24,11 @@ def test_color_manager_updates_with_new_palette() -> None:
     assert "0, 255, 0" in color1_label2  # Green
 
     # Create second palette with different colors
-    palette2 = ColorPalette({"Label1": "#0000FF", "Label2": "#FFFF00"})
+    palette2 = ColorPalette(
+        {"scenarios": {}, "model_years": {}, "metrics": {"Label1": "#0000FF", "Label2": "#FFFF00"}}
+    )
     cm2 = ColorManager(palette2)
-    cm2.initialize_colors(["Label1", "Label2"])
+    cm2.initialize_colors([], sectors=["Label1", "Label2"])
 
     # Get colors from second palette
     color2_label1 = cm2.get_color("Label1")
@@ -44,10 +48,10 @@ def test_color_manager_updates_with_new_palette() -> None:
 
 def test_color_manager_singleton_behavior() -> None:
     """Test that ColorManager maintains singleton behavior."""
-    palette1 = ColorPalette({"A": "#111111"})
+    palette1 = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"A": "#111111"}})
     cm1 = ColorManager(palette1)
 
-    palette2 = ColorPalette({"A": "#222222"})
+    palette2 = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"A": "#222222"}})
     cm2 = ColorManager(palette2)
 
     # Should be the same instance
@@ -84,13 +88,17 @@ def test_color_manager_reinitialize_colors() -> None:
     # First initialization
     palette1 = ColorPalette(
         {
-            "Residential": "#E74C3C",
-            "Commercial": "#3498DB",
-            "Industrial": "#F39C12",
+            "scenarios": {},
+            "model_years": {},
+            "metrics": {
+                "Residential": "#E74C3C",
+                "Commercial": "#3498DB",
+                "Industrial": "#F39C12",
+            },
         }
     )
     cm = ColorManager(palette1)
-    cm.initialize_colors(["Residential", "Commercial", "Industrial"])
+    cm.initialize_colors([], sectors=["Residential", "Commercial", "Industrial"])
 
     # Store first colors
     res1 = cm.get_color("Residential")
@@ -100,13 +108,17 @@ def test_color_manager_reinitialize_colors() -> None:
     # Update with new palette
     palette2 = ColorPalette(
         {
-            "Residential": "#2C3E50",
-            "Commercial": "#E74C3C",
-            "Industrial": "#ECF0F1",
+            "scenarios": {},
+            "model_years": {},
+            "metrics": {
+                "Residential": "#2C3E50",
+                "Commercial": "#E74C3C",
+                "Industrial": "#ECF0F1",
+            },
         }
     )
     cm2 = ColorManager(palette2)
-    cm2.initialize_colors(["Residential", "Commercial", "Industrial"])
+    cm2.initialize_colors([], sectors=["Residential", "Commercial", "Industrial"])
 
     # Get new colors
     res2 = cm2.get_color("Residential")
@@ -129,7 +141,9 @@ def test_color_manager_scenario_styling_updates() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette1 = ColorPalette({"Scenario1": "#FF0000"})
+    palette1 = ColorPalette(
+        {"scenarios": {"Scenario1": "#FF0000"}, "model_years": {}, "metrics": {}}
+    )
     cm1 = ColorManager(palette1)
     cm1.initialize_colors(["Scenario1"])
 
@@ -138,7 +152,9 @@ def test_color_manager_scenario_styling_updates() -> None:
     assert "255, 0, 0" in styling1["border"]
 
     # Update palette
-    palette2 = ColorPalette({"Scenario1": "#0000FF"})
+    palette2 = ColorPalette(
+        {"scenarios": {"Scenario1": "#0000FF"}, "model_years": {}, "metrics": {}}
+    )
     cm2 = ColorManager(palette2)
     cm2.initialize_colors(["Scenario1"])
 
@@ -153,7 +169,7 @@ def test_color_manager_scenario_styling_updates() -> None:
 
 def test_color_manager_preserves_palette_reference() -> None:
     """Test that ColorManager properly references the provided palette."""
-    palette = ColorPalette({"Label": "#123456"})
+    palette = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"Label": "#123456"}})
     cm = ColorManager(palette)
 
     # Get the palette back
@@ -181,12 +197,17 @@ def test_color_manager_multiple_scenarios() -> None:
     # First palette
     palette1 = ColorPalette(
         {
-            "Scenario1": "#FF0000",
-            "Scenario2": "#00FF00",
-            "Scenario3": "#0000FF",
-            "Residential": "#FFFF00",
-            "Commercial": "#FF00FF",
-            "Industrial": "#00FFFF",
+            "scenarios": {
+                "Scenario1": "#FF0000",
+                "Scenario2": "#00FF00",
+                "Scenario3": "#0000FF",
+            },
+            "model_years": {},
+            "metrics": {
+                "Residential": "#FFFF00",
+                "Commercial": "#FF00FF",
+                "Industrial": "#00FFFF",
+            },
         }
     )
 
@@ -200,12 +221,17 @@ def test_color_manager_multiple_scenarios() -> None:
     # Update palette with completely different colors
     palette2 = ColorPalette(
         {
-            "Scenario1": "#111111",
-            "Scenario2": "#222222",
-            "Scenario3": "#333333",
-            "Residential": "#444444",
-            "Commercial": "#555555",
-            "Industrial": "#666666",
+            "scenarios": {
+                "Scenario1": "#111111",
+                "Scenario2": "#222222",
+                "Scenario3": "#333333",
+            },
+            "model_years": {},
+            "metrics": {
+                "Residential": "#444444",
+                "Commercial": "#555555",
+                "Industrial": "#666666",
+            },
         }
     )
 

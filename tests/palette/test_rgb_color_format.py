@@ -79,14 +79,18 @@ def test_color_manager_with_rgb_format() -> None:
 
     palette = ColorPalette(
         {
-            "Residential": "rgb(200,0,0)",
-            "Commercial": "rgb(0,200,0)",
-            "Industrial": "rgb(0,0,200)",
+            "scenarios": {},
+            "model_years": {},
+            "metrics": {
+                "Residential": "rgb(200,0,0)",
+                "Commercial": "rgb(0,200,0)",
+                "Industrial": "rgb(0,0,200)",
+            },
         }
     )
 
     cm = ColorManager(palette)
-    cm.initialize_colors(["Residential", "Commercial", "Industrial"])
+    cm.initialize_colors([], sectors=["Residential", "Commercial", "Industrial"])
 
     # Colors should be converted to rgba format
     res = cm.get_color("Residential")
@@ -103,10 +107,12 @@ def test_color_manager_with_no_spaces_rgb() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette = ColorPalette({"Label": "rgb(123,45,67)"})
+    palette = ColorPalette(
+        {"scenarios": {}, "model_years": {}, "metrics": {"Label": "rgb(123,45,67)"}}
+    )
 
     cm = ColorManager(palette)
-    cm.initialize_colors(["Label"])
+    cm.initialize_colors([], sectors=["Label"])
 
     color = cm.get_color("Label")
 
@@ -122,7 +128,9 @@ def test_color_manager_scenario_styling_with_rgb() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette = ColorPalette({"Scenario1": "rgb(255,100,50)"})
+    palette = ColorPalette(
+        {"scenarios": {"Scenario1": "rgb(255,100,50)"}, "model_years": {}, "metrics": {}}
+    )
 
     cm = ColorManager(palette)
     cm.initialize_colors(["Scenario1"])
@@ -248,18 +256,25 @@ def test_end_to_end_rgb_workflow() -> None:
 
     # Simulate colors from project.json5 file (rgb format)
     project_colors = {
-        "baseline": "rgb(56,166,165)",
-        "alternate": "rgb(29,105,150)",
-        "Residential": "rgb(200,0,0)",
-        "Commercial": "rgb(0,200,0)",
+        "scenarios": {
+            "baseline": "rgb(56,166,165)",
+            "alternate": "rgb(29,105,150)",
+        },
+        "model_years": {},
+        "metrics": {
+            "Residential": "rgb(200,0,0)",
+            "Commercial": "rgb(0,200,0)",
+        },
     }
 
     # Create palette
     palette = ColorPalette(project_colors)
 
     # Verify palette preserves rgb format
-    for label, color in project_colors.items():
-        assert palette.palette[label.lower()] == color
+    assert palette.scenarios["baseline"] == "rgb(56,166,165)"
+    assert palette.scenarios["alternate"] == "rgb(29,105,150)"
+    assert palette.sectors["residential"] == "rgb(200,0,0)"
+    assert palette.sectors["commercial"] == "rgb(0,200,0)"
 
     # Initialize ColorManager
     cm = ColorManager(palette)
