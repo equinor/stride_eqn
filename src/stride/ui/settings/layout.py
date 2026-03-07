@@ -55,7 +55,7 @@ def create_settings_layout(
 
     metric_colors = {}
     for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label, ColorCategory.METRIC)
+        metric_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
@@ -628,7 +628,7 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
 
     metric_colors = {}
     for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label, ColorCategory.METRIC)
+        metric_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()

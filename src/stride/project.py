@@ -30,7 +30,7 @@ from stride.models import (
     ProjectConfig,
     Scenario,
 )
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 CONFIG_FILE = "project.json5"
 DATABASE_FILE = "data.duckdb"
@@ -318,15 +318,15 @@ class Project:
         sectors = api_client.get_unique_sectors()
         end_uses = api_client.get_unique_end_uses()
 
-        # Add sectors to metrics category
+        # Add sectors to palette
         for sector in sectors:
-            if self._palette is not None and sector not in self._palette.metrics:
-                self._palette.update(sector, category="metrics")
+            if self._palette is not None and sector not in self._palette.sectors:
+                self._palette.update(sector, category=ColorCategory.SECTOR)
 
-        # Add end uses to metrics category
+        # Add end uses to palette
         for end_use in end_uses:
-            if self._palette is not None and end_use not in self._palette.metrics:
-                self._palette.update(end_use, category="metrics")
+            if self._palette is not None and end_use not in self._palette.end_uses:
+                self._palette.update(end_use, category=ColorCategory.END_USE)
 
     def refresh_palette_colors(self) -> None:
         """Refresh all palette colors to use the correct themes for each category.
@@ -347,9 +347,10 @@ class Project:
 
         # Refresh colors for each category using the correct theme
         if self._palette is not None:
-            self._palette.refresh_category_colors("scenarios")
-            self._palette.refresh_category_colors("model_years")
-            self._palette.refresh_category_colors("metrics")
+            self._palette.refresh_category_colors(ColorCategory.SCENARIO)
+            self._palette.refresh_category_colors(ColorCategory.MODEL_YEAR)
+            self._palette.refresh_category_colors(ColorCategory.SECTOR)
+            self._palette.refresh_category_colors(ColorCategory.END_USE)
 
     def save_palette(self) -> None:
         """Save the current palette state back to the project conig file."""

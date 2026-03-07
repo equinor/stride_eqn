@@ -1028,7 +1028,7 @@ def init_palette(  # noqa: C901
     The palette can be saved to user space (default) or embedded in a project.
     """
     from stride.api import APIClient
-    from stride.ui.palette import ColorPalette
+    from stride.ui.palette import ColorCategory, ColorPalette
     from stride.ui.tui import load_user_palette, save_user_palette
 
     # Validate that at most one source is specified
@@ -1081,9 +1081,11 @@ def init_palette(  # noqa: C901
         end_uses = api_client.get_unique_end_uses()
         print(f"Found {len(sectors)} sectors and {len(end_uses)} end uses from database")
 
-        # Add sectors and end uses to the metrics category
-        for label in sectors + end_uses:
-            palette.update(label, category="metrics")
+        # Add sectors and end uses to their respective categories
+        for label in sectors:
+            palette.update(label, category=ColorCategory.SECTOR)
+        for label in end_uses:
+            palette.update(label, category=ColorCategory.END_USE)
 
         palette_dict = palette.to_dict()
 
@@ -1226,7 +1228,7 @@ def refresh_palette(ctx: click.Context, project_path: Path) -> None:
     print("\nBefore refresh:")
     print(f"  Scenarios: {len(palette.scenarios)}")
     print(f"  Model Years: {len(palette.model_years)}")
-    print(f"  Metrics: {len(palette.metrics)}")
+    print(f"  Sectors: {len(palette.sectors)}, End Uses: {len(palette.end_uses)}")
 
     # Refresh colors
     project.refresh_palette_colors()
@@ -1235,7 +1237,7 @@ def refresh_palette(ctx: click.Context, project_path: Path) -> None:
     print("\nAfter refresh:")
     print(f"  Scenarios: {len(palette.scenarios)} (Bold theme)")
     print(f"  Model Years: {len(palette.model_years)} (YlOrRd theme)")
-    print(f"  Metrics: {len(palette.metrics)} (Prism theme)")
+    print(f"  Sectors: {len(palette.sectors)}, End Uses: {len(palette.end_uses)}")
     print("\nPalette colors refreshed and saved!")
 
 

@@ -464,7 +464,10 @@ def get_time_series_breakdown_info(
 
 
 def create_time_series_line_traces(
-    df: pd.DataFrame, color_generator: "ColorManager", breakdown_info: dict[str, Any]
+    df: pd.DataFrame,
+    color_generator: "ColorManager",
+    breakdown_info: dict[str, Any],
+    breakdown_type: ColorCategory | None = None,
 ) -> list[go.Scatter]:
     """
     Create line traces for time series data.
@@ -529,7 +532,9 @@ def create_time_series_line_traces(
                         mode="lines",
                         name=legend_name,
                         line=dict(
-                            color=color_generator.get_color(category, ColorCategory.METRIC),
+                            color=color_generator.get_color(
+                                category, breakdown_type or ColorCategory.SECTOR
+                            ),
                             dash=line_style,
                         ),
                         legendgroup=category,
@@ -541,7 +546,10 @@ def create_time_series_line_traces(
 
 
 def create_time_series_area_traces(
-    df: pd.DataFrame, color_generator: "ColorManager", breakdown_info: dict[str, Any]
+    df: pd.DataFrame,
+    color_generator: "ColorManager",
+    breakdown_info: dict[str, Any],
+    breakdown_type: ColorCategory | None = None,
 ) -> list[go.Scatter]:
     """
     Create area traces for time series data.
@@ -603,7 +611,11 @@ def create_time_series_area_traces(
                         y=category_df["value"],
                         mode="lines",
                         name=legend_name,
-                        line=dict(color=color_generator.get_color(category, ColorCategory.METRIC)),
+                        line=dict(
+                            color=color_generator.get_color(
+                                category, breakdown_type or ColorCategory.SECTOR
+                            )
+                        ),
                         fill="tonexty" if j > 0 else "tozeroy",
                         stackgroup=f"year_{year}",
                         legendgroup=category,
@@ -660,6 +672,7 @@ def create_faceted_traces(
     chart_type: str,
     group_by: str | None = None,
     value_col: str = "value",
+    breakdown_type: ColorCategory | None = None,
 ) -> list[tuple[go.Scatter, int, int]]:
     """
     Create traces for faceted time series plots.
@@ -710,7 +723,7 @@ def create_faceted_traces(
                     j,
                     show_legend,
                     category,
-                    ColorCategory.METRIC,
+                    breakdown_type or ColorCategory.SECTOR,
                 )
                 traces_info.append((trace, row, col))
     else:

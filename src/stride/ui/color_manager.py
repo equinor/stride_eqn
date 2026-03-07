@@ -38,21 +38,21 @@ class ColorManager:
 
         Each entity type is stored in its correct palette category:
         scenarios → ``ColorCategory.SCENARIO``, sectors/end-uses →
-        ``ColorCategory.METRIC``.
+        ``ColorCategory.SECTOR`` / ``ColorCategory.END_USE``.
         """
         # Scenarios → scenario palette
         for key in scenarios:
             self.get_color(key, ColorCategory.SCENARIO)
 
-        # Sectors → metric palette
+        # Sectors → sector palette
         if sectors:
             for key in sectors:
-                self.get_color(key, ColorCategory.METRIC)
+                self.get_color(key, ColorCategory.SECTOR)
 
-        # End-uses → also metric palette (usually assigned lazily)
+        # End-uses → end-use palette
         if end_uses:
             for key in end_uses:
-                self.get_color(key, ColorCategory.METRIC)
+                self.get_color(key, ColorCategory.END_USE)
 
         # Generate scenario styling colors
         self._generate_scenario_colors(scenarios)
@@ -69,8 +69,8 @@ class ColorManager:
         key : str
             Label to look up (scenario name, sector, end-use, year, etc.)
         category : ColorCategory | str | None
-            Which palette category to use. When ``None``, all categories are
-            searched and new keys default to ``ColorCategory.METRIC``.
+            Which palette category to use.  When ``None``, all categories are
+            searched and new keys default to ``ColorCategory.SECTOR``.
         """
         # Get color from palette (could be hex or rgb string)
         color = self._palette.get(key, category=category)

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 
 class TestColorPaletteInitialization:
@@ -183,8 +183,8 @@ class TestColorPaletteToDict:
     def test_to_dict_with_colors(self) -> None:
         """Test converting palette with colors to dict."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733", category="metrics")
-        palette.update("commercial", "#3498DB", category="metrics")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette.update("commercial", "#3498DB", category=ColorCategory.SECTOR)
         result = palette.to_dict()
         assert "metrics" in result
         assert result["metrics"]["residential"] == "#FF5733"
@@ -193,7 +193,7 @@ class TestColorPaletteToDict:
     def test_to_dict_returns_copy(self) -> None:
         """Test that to_dict returns a copy, not the original dict."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733", category="metrics")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         result = palette.to_dict()
         result["metrics"]["new_key"] = "#000000"
         assert "new_key" not in palette.palette

@@ -205,6 +205,7 @@ def _add_stacked_area_traces(
     color_generator: "ColorManager",
     breakdown_col: str | None,
     breakdown_categories: list[str],
+    breakdown_type: ColorCategory | None = None,
 ) -> None:
     """Add stacked area traces to the figure for each facet."""
     for i, facet_value in enumerate(layout_config["facet_categories"]):
@@ -232,7 +233,11 @@ def _add_stacked_area_traces(
                     "y": category_df["value"],
                     "mode": "lines",
                     "name": category,
-                    "line": dict(color=color_generator.get_color(category, ColorCategory.METRIC)),
+                    "line": dict(
+                        color=color_generator.get_color(
+                            category, breakdown_type or ColorCategory.SECTOR
+                        )
+                    ),
                     "fill": "tonexty" if j > 0 else "tozeroy",
                     "stackgroup": f"facet_{i}" if layout_config["facet_col"] else "one",
                     "showlegend": show_legend,
@@ -258,7 +263,7 @@ def _add_stacked_area_traces(
                 "line": dict(
                     color=color_generator.get_color(
                         str(facet_value) if layout_config["facet_col"] else "Load",
-                        ColorCategory.METRIC,
+                        breakdown_type or ColorCategory.SECTOR,
                     )
                 ),
                 "fill": "tozeroy",
@@ -305,7 +310,13 @@ def seasonal_load_area(
 
     # Add area traces
     _add_stacked_area_traces(
-        fig, df, layout_config, color_generator, breakdown_col, breakdown_categories
+        fig,
+        df,
+        layout_config,
+        color_generator,
+        breakdown_col,
+        breakdown_categories,
+        breakdown_type=ColorCategory.END_USE,
     )
 
     # Update layout
@@ -388,6 +399,7 @@ def faceted_time_series(
     group_by: str | None = None,
     value_col: str = "value",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Create faceted subplots for each scenario with shared legend.
@@ -429,7 +441,7 @@ def faceted_time_series(
 
     # Create and add traces
     traces_info = create_faceted_traces(
-        df, scenarios, color_generator, chart_type, group_by, value_col
+        df, scenarios, color_generator, chart_type, group_by, value_col, breakdown_type
     )
     for trace, row, col in traces_info:
         fig.add_trace(trace, row=row, col=col)

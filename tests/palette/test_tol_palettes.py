@@ -11,6 +11,7 @@ from stride.ui.palette import (
     TOL_IRIDESCENT,
     TOL_METRICS_DARK,
     TOL_METRICS_LIGHT,
+    ColorCategory,
     ColorPalette,
     sample_iridescent,
 )
@@ -103,24 +104,24 @@ class TestSetUiTheme:
 
     def test_switch_to_dark(self):
         palette = ColorPalette()
-        palette.update("metric_a", category="metrics")
-        palette.update("metric_b", category="metrics")
+        palette.update("metric_a", category=ColorCategory.SECTOR)
+        palette.update("metric_b", category=ColorCategory.SECTOR)
 
         palette.set_ui_theme("dark")
 
         assert palette._ui_theme == "dark"
         assert palette.metric_theme == list(TOL_METRICS_DARK)
-        # Metrics should be reassigned with dark-mode colors
-        assert palette.metrics["metric_a"] == TOL_METRICS_DARK[0]
-        assert palette.metrics["metric_b"] == TOL_METRICS_DARK[1]
+        # Sectors should be reassigned with dark-mode colors
+        assert palette.sectors["metric_a"] == TOL_METRICS_DARK[0]
+        assert palette.sectors["metric_b"] == TOL_METRICS_DARK[1]
 
     def test_switch_back_to_light(self):
         palette = ColorPalette()
-        palette.update("metric_a", category="metrics")
+        palette.update("metric_a", category=ColorCategory.SECTOR)
         palette.set_ui_theme("dark")
         palette.set_ui_theme("light")
         assert palette._ui_theme == "light"
-        assert palette.metrics["metric_a"] == TOL_METRICS_LIGHT[0]
+        assert palette.sectors["metric_a"] == TOL_METRICS_LIGHT[0]
 
     def test_model_years_resampled(self):
         palette = ColorPalette()
@@ -162,12 +163,95 @@ class TestDefaultPaletteColors:
         palette.update("test_scenario", category="scenarios")
         assert palette.scenarios["test_scenario"] == TOL_BRIGHT[0]
 
-    def test_metric_colors_from_tol_metrics_light(self):
+    def test_sector_colors_from_tol_metrics_light(self):
         palette = ColorPalette()
-        palette.update("test_metric", category="metrics")
-        assert palette.metrics["test_metric"] == TOL_METRICS_LIGHT[0]
+        palette.update("test_metric", category=ColorCategory.SECTOR)
+        assert palette.sectors["test_metric"] == TOL_METRICS_LIGHT[0]
 
     def test_model_year_colors_from_tol_iridescent(self):
         palette = ColorPalette()
         palette.update("2020", category="model_years")
         assert palette.model_years["2020"] == TOL_IRIDESCENT[0]
+
+
+class TestIndependentBreakdownColors:
+    """Verify that sectors and end-uses get independent color sequences.
+
+    Both should start from position 0 in the metric theme, regardless of
+    which group was registered first or how many items the other group has.
+    """
+
+    def test_sectors_and_end_uses_start_from_same_first_color(self):
+        """Sectors and end-uses should both begin at metric_theme[0]."""
+        palette = ColorPalette()
+
+        # Register several sectors first
+        palette.update("residential", category=ColorCategory.SECTOR)
+        palette.update("commercial", category=ColorCategory.SECTOR)
+        palette.update("industrial", category=ColorCategory.SECTOR)
+
+        # Now register end-uses — these should NOT continue after industrial
+        palette.update("heating", category=ColorCategory.END_USE)
+
+        assert palette.sectors["residential"] == TOL_METRICS_LIGHT[0]
+        assert palette.sectors["commercial"] == TOL_METRICS_LIGHT[1]
+        assert palette.sectors["industrial"] == TOL_METRICS_LIGHT[2]
+        # Key assertion: heating starts at [0], not [3]
+        assert palette.end_uses["heating"] == TOL_METRICS_LIGHT[0]
+
+    def test_end_uses_registered_first_then_sectors(self):
+        """Order shouldn't matter — reversing registration order works too."""
+        palette = ColorPalette()
+
+        palette.update("heating", category=ColorCategory.END_USE)
+        palette.update("cooling", category=ColorCategory.END_USE)
+
+        palette.update("residential", category=ColorCategory.SECTOR)
+
+        # End-uses got [0] and [1]; sectors restart at [0]
+        assert palette.end_uses["heating"] == TOL_METRICS_LIGHT[0]
+        assert palette.end_uses["cooling"] == TOL_METRICS_LIGHT[1]
+        assert palette.sectors["residential"] == TOL_METRICS_LIGHT[0]
+
+    def test_get_also_uses_independent_iterators(self):
+        """palette.get() should use the same independent iterators as update()."""
+        palette = ColorPalette()
+
+        # Use get() to auto-assign colors — pass ColorCategory directly
+        s1 = palette.get("sector_a", category=ColorCategory.SECTOR)
+        s2 = palette.get("sector_b", category=ColorCategory.SECTOR)
+        e1 = palette.get("end_use_a", category=ColorCategory.END_USE)
+        e2 = palette.get("end_use_b", category=ColorCategory.END_USE)
+
+        assert s1 == TOL_METRICS_LIGHT[0]
+        assert s2 == TOL_METRICS_LIGHT[1]
+        # End-uses restart at [0]
+        assert e1 == TOL_METRICS_LIGHT[0]
+        assert e2 == TOL_METRICS_LIGHT[1]
+
+    def test_interleaved_registration_stays_independent(self):
+        """Interleaving sector and end-use registrations keeps sequences separate."""
+        palette = ColorPalette()
+
+        palette.update("sector_1", category=ColorCategory.SECTOR)
+        palette.update("end_use_1", category=ColorCategory.END_USE)
+        palette.update("sector_2", category=ColorCategory.SECTOR)
+        palette.update("end_use_2", category=ColorCategory.END_USE)
+
+        assert palette.sectors["sector_1"] == TOL_METRICS_LIGHT[0]
+        assert palette.sectors["sector_2"] == TOL_METRICS_LIGHT[1]
+        assert palette.end_uses["end_use_1"] == TOL_METRICS_LIGHT[0]
+        assert palette.end_uses["end_use_2"] == TOL_METRICS_LIGHT[1]
+
+    def test_independent_sequences_after_theme_switch(self):
+        """After switching to dark mode, sequences should still be independent."""
+        palette = ColorPalette()
+
+        palette.update("sector_a", category=ColorCategory.SECTOR)
+        palette.update("end_use_a", category=ColorCategory.END_USE)
+
+        palette.set_ui_theme("dark")
+
+        # After theme switch, both should be reassigned from dark theme position 0
+        assert palette.sectors["sector_a"] == TOL_METRICS_DARK[0]
+        assert palette.end_uses["end_use_a"] == TOL_METRICS_DARK[0]

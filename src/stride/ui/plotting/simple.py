@@ -112,6 +112,7 @@ def grouped_multi_bars(
     x_group: str = "scenario",
     y_group: str = "end_use",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Create grouped and multi-level bar chart.
@@ -157,7 +158,9 @@ def grouped_multi_bars(
                 go.Bar(
                     x=df_subset["year"].astype(str),
                     y=df_subset["value"],
-                    marker_color=color_generator.get_color(y_value, ColorCategory.METRIC),
+                    marker_color=color_generator.get_color(
+                        y_value, breakdown_type or ColorCategory.SECTOR
+                    ),
                     name=y_value,
                     offsetgroup=x_value,
                     legendgroup=y_value,
@@ -240,6 +243,7 @@ def grouped_stacked_bars(
     value_col: str = "demand",
     show_scenario_indicators: bool = True,
     template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Create grouped and stacked bar chart.
@@ -305,7 +309,9 @@ def grouped_stacked_bars(
                     legendgrouptitle_text=stack_col.replace("_", " ").title()
                     if not stack_group_title_added
                     else None,
-                    marker_color=color_generator.get_color(stack_cat, ColorCategory.METRIC),
+                    marker_color=color_generator.get_color(
+                        stack_cat, breakdown_type or ColorCategory.SECTOR
+                    ),
                     offsetgroup=group,
                     legendrank=1,
                     showlegend=stack_cat not in added_stack_legend,
@@ -381,6 +387,7 @@ def time_series(
     group_by: str | None = None,
     chart_type: str = "Line",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Plot time series data for multiple years of a single scenario.
@@ -425,9 +432,13 @@ def time_series(
     else:
         # Create traces based on chart type
         if chart_type == "Area":
-            traces = create_time_series_area_traces(df, color_generator, breakdown_info)
+            traces = create_time_series_area_traces(
+                df, color_generator, breakdown_info, breakdown_type
+            )
         else:  # Line chart
-            traces = create_time_series_line_traces(df, color_generator, breakdown_info)
+            traces = create_time_series_line_traces(
+                df, color_generator, breakdown_info, breakdown_type
+            )
 
         # Add all traces to figure
         for trace in traces:
@@ -547,7 +558,7 @@ def area_plot(
                 x=end_use_df["year"],
                 y=end_use_df[metric],
                 mode="lines",
-                line=dict(color=color_generator.get_color(end_use, ColorCategory.METRIC)),
+                line=dict(color=color_generator.get_color(end_use, ColorCategory.END_USE)),
                 showlegend=False,
                 stackgroup="one",
             )

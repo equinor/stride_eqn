@@ -283,6 +283,13 @@ def update_consumption_plot(
     try:
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
         # Get consumption data for this scenario
         df = data_handler.get_annual_electricity_consumption(
             scenarios=[scenario], group_by=breakdown_value
@@ -296,6 +303,7 @@ def update_consumption_plot(
                 value_col="value",
                 group_col="scenario",
                 show_scenario_indicators=False,
+                breakdown_type=breakdown_type,
             )
         else:
             # Use theme-aware neutral gray color for the bars
@@ -417,6 +425,13 @@ def update_peak_plot(
     try:
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
         # Get peak demand data for this scenario
         df = data_handler.get_annual_peak_demand(scenarios=[scenario], group_by=breakdown_value)
         # Create plot
@@ -428,6 +443,7 @@ def update_peak_plot(
                 value_col="value",
                 group_col="scenario",
                 show_scenario_indicators=False,
+                breakdown_type=breakdown_type,
             )
         else:
             # Use theme-aware neutral gray color for the bars
@@ -563,6 +579,13 @@ def update_timeseries_plot(
 
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
 
         # Get timeseries data. Need to pass "End Use" Literal Hera
         df = data_handler.get_time_series_comparison(
@@ -574,7 +597,11 @@ def update_timeseries_plot(
         # Need to assign to new variable for typing.
         stack_col = "metric" if breakdown_value == "End Use" else str(breakdown_value)
         # Use the new time_series function for better multi-year visualization
-        fig = plotter.time_series(df, group_by=stack_col.lower() if breakdown_value else None)
+        fig = plotter.time_series(
+            df,
+            group_by=stack_col.lower() if breakdown_value else None,
+            breakdown_type=breakdown_type,
+        )
 
         # Add weather variable if selected
         if weather_var and weather_var != "None":

@@ -58,7 +58,8 @@ def create_fresh_color_manager(palette: ColorPalette, scenarios: list[str]) -> C
     # Reset the palette's iterators to ensure consistent color assignment
     palette._scenario_iterator = cycle(palette.scenario_theme)
     palette._model_year_iterator = cycle(palette.model_year_theme)
-    palette._metric_iterator = cycle(palette.metric_theme)
+    palette._sector_iterator = cycle(palette.metric_theme)
+    palette._end_use_iterator = cycle(palette.metric_theme)
 
     # Use object.__new__ to bypass ColorManager's singleton __new__ method
     color_manager = object.__new__(ColorManager)
