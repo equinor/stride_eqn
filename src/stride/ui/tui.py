@@ -526,7 +526,7 @@ class PaletteViewer(App[None]):
         # If no color provided, auto-assign from theme using ColorPalette
         if not color:
             # Create a temporary ColorPalette with existing labels to get next color
-            temp_palette = ColorPalette(self.label_groups.get(group_name, {}))
+            temp_palette = ColorPalette.from_dict(self.label_groups.get(group_name, {}))
             # This will automatically cycle to the next color in the theme
             color = temp_palette.get(label_name)
         elif not validate_color(color):
@@ -1091,7 +1091,7 @@ def load_user_palette(name: str) -> ColorPalette:
             msg = f"Invalid palette format in {name}.json"
             raise ValueError(msg)
 
-    return ColorPalette(palette_dict)
+    return ColorPalette.from_dict(palette_dict)
 
 
 def delete_user_palette(name: str) -> None:

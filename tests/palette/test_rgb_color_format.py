@@ -8,7 +8,7 @@ from stride.ui.palette import ColorPalette
 
 def test_rgb_format_in_palette() -> None:
     """Test that ColorPalette accepts rgb() format colors."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "Label1": "rgb(200,0,0)",
             "Label2": "rgb(0, 200, 0)",
@@ -24,7 +24,7 @@ def test_rgb_format_in_palette() -> None:
 
 def test_rgba_format_in_palette() -> None:
     """Test that ColorPalette accepts rgba() format colors."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "Label1": "rgba(200,0,0,0.5)",
             "Label2": "rgba(0, 200, 0, 0.8)",
@@ -40,7 +40,7 @@ def test_rgba_format_in_palette() -> None:
 
 def test_hex_format_in_palette() -> None:
     """Test that ColorPalette still accepts hex format colors."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "Label1": "#FF0000",
             "Label2": "#00FF00",
@@ -56,7 +56,7 @@ def test_hex_format_in_palette() -> None:
 
 def test_mixed_formats_in_palette() -> None:
     """Test that ColorPalette accepts mixed format colors."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "Hex": "#FF0000",
             "RGB": "rgb(0,255,0)",
@@ -77,7 +77,7 @@ def test_color_manager_with_rgb_format() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "scenarios": {},
             "model_years": {},
@@ -107,7 +107,7 @@ def test_color_manager_with_no_spaces_rgb() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {"scenarios": {}, "model_years": {}, "metrics": {"Label": "rgb(123,45,67)"}}
     )
 
@@ -128,7 +128,7 @@ def test_color_manager_scenario_styling_with_rgb() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {"scenarios": {"Scenario1": "rgb(255,100,50)"}, "model_years": {}, "metrics": {}}
     )
 
@@ -191,7 +191,7 @@ def test_palette_from_dict_with_rgb() -> None:
 
 def test_invalid_rgb_format_gets_replaced() -> None:
     """Test that invalid rgb() format gets replaced with theme color."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "Valid": "rgb(100,100,100)",
             "Invalid1": "rgb(300,400,500)",  # Values out of range (but still valid syntax)
@@ -212,7 +212,7 @@ def test_invalid_rgb_format_gets_replaced() -> None:
 
 def test_rgb_with_various_spacing() -> None:
     """Test rgb() colors with various spacing patterns."""
-    palette = ColorPalette(
+    palette = ColorPalette.from_dict(
         {
             "NoSpaces": "rgb(10,20,30)",
             "AllSpaces": "rgb(10, 20, 30)",
@@ -268,7 +268,7 @@ def test_end_to_end_rgb_workflow() -> None:
     }
 
     # Create palette
-    palette = ColorPalette(project_colors)
+    palette = ColorPalette.from_dict(project_colors)
 
     # Verify palette preserves rgb format
     assert palette.scenarios["baseline"] == "rgb(56,166,165)"

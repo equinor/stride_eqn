@@ -53,9 +53,13 @@ def create_settings_layout(
     for label in structured_palette.get("model_years", {}):
         model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
-    metric_colors = {}
-    for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+    sector_colors = {}
+    for label in structured_palette.get("sectors", {}):
+        sector_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+
+    end_use_colors = {}
+    for label in structured_palette.get("end_uses", {}):
+        end_use_colors[label] = color_manager.get_color(label, ColorCategory.END_USE)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
@@ -201,7 +205,7 @@ def create_settings_layout(
                                                     html.Div(
                                                         [
                                                             html.H6(
-                                                                "Metrics",
+                                                                "Sectors",
                                                                 className="mb-2 text-muted",
                                                             ),
                                                             html.Div(
@@ -209,13 +213,33 @@ def create_settings_layout(
                                                                     _create_color_item(
                                                                         label, color, temp_edits
                                                                     )
-                                                                    for label, color in metric_colors.items()
+                                                                    for label, color in sector_colors.items()
+                                                                ],
+                                                                className="d-flex flex-wrap gap-2 mb-3",
+                                                            ),
+                                                        ]
+                                                    )
+                                                    if sector_colors
+                                                    else None,
+                                                    # End Uses
+                                                    html.Div(
+                                                        [
+                                                            html.H6(
+                                                                "End Uses",
+                                                                className="mb-2 text-muted",
+                                                            ),
+                                                            html.Div(
+                                                                [
+                                                                    _create_color_item(
+                                                                        label, color, temp_edits
+                                                                    )
+                                                                    for label, color in end_use_colors.items()
                                                                 ],
                                                                 className="d-flex flex-wrap gap-2",
                                                             ),
                                                         ]
                                                     )
-                                                    if metric_colors
+                                                    if end_use_colors
                                                     else None,
                                                 ],
                                             )
@@ -626,9 +650,13 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
     for label in structured_palette.get("model_years", {}):
         model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
-    metric_colors = {}
-    for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+    sector_colors = {}
+    for label in structured_palette.get("sectors", {}):
+        sector_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+
+    end_use_colors = {}
+    for label in structured_palette.get("end_uses", {}):
+        end_use_colors[label] = color_manager.get_color(label, ColorCategory.END_USE)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
@@ -676,19 +704,39 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
             )
         )
 
-    # Metrics
-    if metric_colors:
+    # Sectors
+    if sector_colors:
         content.append(
             html.Div(
                 [
                     html.H6(
-                        "Metrics",
+                        "Sectors",
                         className="mb-2 text-muted",
                     ),
                     html.Div(
                         [
                             _create_color_item(label, color, temp_edits)
-                            for label, color in metric_colors.items()
+                            for label, color in sector_colors.items()
+                        ],
+                        className="d-flex flex-wrap gap-2 mb-3",
+                    ),
+                ]
+            )
+        )
+
+    # End Uses
+    if end_use_colors:
+        content.append(
+            html.Div(
+                [
+                    html.H6(
+                        "End Uses",
+                        className="mb-2 text-muted",
+                    ),
+                    html.Div(
+                        [
+                            _create_color_item(label, color, temp_edits)
+                            for label, color in end_use_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2",
                     ),

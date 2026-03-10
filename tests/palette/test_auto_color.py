@@ -59,7 +59,7 @@ def test_auto_color_with_existing_palette() -> None:
         "Existing3": "#0000FF",
     }
 
-    palette = ColorPalette(existing)
+    palette = ColorPalette.from_dict(existing)
 
     # Add new labels - should get different colors from the theme
     new_labels = ["New1", "New2", "New3"]
@@ -132,7 +132,7 @@ def test_palette_integration() -> None:
 
     # Simulate adding labels to Scenarios group
     print("\n  Adding to Scenarios group:")
-    scenarios_palette = ColorPalette(label_groups["Scenarios"])
+    scenarios_palette = ColorPalette.from_dict(label_groups["Scenarios"])
     for scenario in ["Baseline", "Alternative", "High Growth"]:
         color = scenarios_palette.get(scenario)
         label_groups["Scenarios"][scenario] = color
@@ -140,7 +140,7 @@ def test_palette_integration() -> None:
 
     # Simulate adding labels to Sectors group
     print("\n  Adding to Sectors group:")
-    sectors_palette = ColorPalette(label_groups["Sectors"])
+    sectors_palette = ColorPalette.from_dict(label_groups["Sectors"])
     for sector in ["Residential", "Commercial", "Industrial"]:
         color = sectors_palette.get(sector)
         label_groups["Sectors"][sector] = color
@@ -148,7 +148,7 @@ def test_palette_integration() -> None:
 
     # Simulate adding labels to Years group
     print("\n  Adding to Years group:")
-    years_palette = ColorPalette(label_groups["Years"])
+    years_palette = ColorPalette.from_dict(label_groups["Years"])
     for year in ["2025", "2030", "2035", "2040"]:
         color = years_palette.get(year)
         label_groups["Years"][year] = color

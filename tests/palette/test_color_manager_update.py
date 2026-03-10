@@ -9,7 +9,7 @@ from stride.ui.palette import ColorPalette
 def test_color_manager_updates_with_new_palette() -> None:
     """Test that ColorManager updates when a new palette is provided."""
     # Create first palette with labels in the sectors category
-    palette1 = ColorPalette(
+    palette1 = ColorPalette.from_dict(
         {"scenarios": {}, "model_years": {}, "metrics": {"Label1": "#FF0000", "Label2": "#00FF00"}}
     )
     cm1 = ColorManager(palette1)
@@ -24,7 +24,7 @@ def test_color_manager_updates_with_new_palette() -> None:
     assert "0, 255, 0" in color1_label2  # Green
 
     # Create second palette with different colors
-    palette2 = ColorPalette(
+    palette2 = ColorPalette.from_dict(
         {"scenarios": {}, "model_years": {}, "metrics": {"Label1": "#0000FF", "Label2": "#FFFF00"}}
     )
     cm2 = ColorManager(palette2)
@@ -48,10 +48,10 @@ def test_color_manager_updates_with_new_palette() -> None:
 
 def test_color_manager_singleton_behavior() -> None:
     """Test that ColorManager maintains singleton behavior."""
-    palette1 = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"A": "#111111"}})
+    palette1 = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"A": "#111111"}})
     cm1 = ColorManager(palette1)
 
-    palette2 = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"A": "#222222"}})
+    palette2 = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"A": "#222222"}})
     cm2 = ColorManager(palette2)
 
     # Should be the same instance
@@ -86,7 +86,7 @@ def test_color_manager_reinitialize_colors() -> None:
     ColorManager._instance = None  # type: ignore[misc]
 
     # First initialization
-    palette1 = ColorPalette(
+    palette1 = ColorPalette.from_dict(
         {
             "scenarios": {},
             "model_years": {},
@@ -106,7 +106,7 @@ def test_color_manager_reinitialize_colors() -> None:
     ind1 = cm.get_color("Industrial")
 
     # Update with new palette
-    palette2 = ColorPalette(
+    palette2 = ColorPalette.from_dict(
         {
             "scenarios": {},
             "model_years": {},
@@ -141,7 +141,7 @@ def test_color_manager_scenario_styling_updates() -> None:
     # Reset singleton
     ColorManager._instance = None  # type: ignore[misc]
 
-    palette1 = ColorPalette(
+    palette1 = ColorPalette.from_dict(
         {"scenarios": {"Scenario1": "#FF0000"}, "model_years": {}, "metrics": {}}
     )
     cm1 = ColorManager(palette1)
@@ -152,7 +152,7 @@ def test_color_manager_scenario_styling_updates() -> None:
     assert "255, 0, 0" in styling1["border"]
 
     # Update palette
-    palette2 = ColorPalette(
+    palette2 = ColorPalette.from_dict(
         {"scenarios": {"Scenario1": "#0000FF"}, "model_years": {}, "metrics": {}}
     )
     cm2 = ColorManager(palette2)
@@ -169,7 +169,7 @@ def test_color_manager_scenario_styling_updates() -> None:
 
 def test_color_manager_preserves_palette_reference() -> None:
     """Test that ColorManager properly references the provided palette."""
-    palette = ColorPalette({"scenarios": {}, "model_years": {}, "metrics": {"Label": "#123456"}})
+    palette = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"Label": "#123456"}})
     cm = ColorManager(palette)
 
     # Get the palette back
@@ -195,7 +195,7 @@ def test_color_manager_multiple_scenarios() -> None:
     sectors = ["Residential", "Commercial", "Industrial"]
 
     # First palette
-    palette1 = ColorPalette(
+    palette1 = ColorPalette.from_dict(
         {
             "scenarios": {
                 "Scenario1": "#FF0000",
@@ -219,7 +219,7 @@ def test_color_manager_multiple_scenarios() -> None:
     assert len(all_styling1) == 3
 
     # Update palette with completely different colors
-    palette2 = ColorPalette(
+    palette2 = ColorPalette.from_dict(
         {
             "scenarios": {
                 "Scenario1": "#111111",

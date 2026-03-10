@@ -1052,7 +1052,7 @@ def init_palette(  # noqa: C901
         # Create an empty palette with structured categories
         print(f"Creating empty palette: {name}")
         print("Use 'stride palette view {name} --user' to add labels interactively")
-        palette_dict = {"scenarios": {}, "model_years": {}, "metrics": {}}
+        palette_dict = {"scenarios": {}, "model_years": {}, "sectors": {}, "end_uses": {}}
     elif from_project:
         # Get labels from project configuration and database
         project_path = from_project

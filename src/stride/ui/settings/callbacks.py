@@ -794,11 +794,13 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                     no_update,  # type: ignore[return-value]
                 )
 
-            # Check if it has the expected structure
-            if not all(key in palette_dict for key in ["scenarios", "model_years", "metrics"]):
+            # Check if it has the expected structure (accept both new and legacy formats)
+            _required_new = {"scenarios", "model_years", "sectors", "end_uses"}
+            _required_legacy = {"scenarios", "model_years", "metrics"}
+            if not (_required_new <= palette_dict.keys() or _required_legacy <= palette_dict.keys()):
                 return (
                     html.Div(
-                        "✗ Invalid palette structure: must have 'scenarios', 'model_years', and 'metrics' keys",
+                        "✗ Invalid palette structure: must have 'scenarios', 'model_years', 'sectors', and 'end_uses' keys (or legacy 'metrics' key)",
                         className="text-danger mt-2",
                     ),
                     no_update,  # type: ignore[return-value]
@@ -806,7 +808,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 )
 
             # Create a ColorPalette from the JSON
-            palette = ColorPalette(palette_dict)
+            palette = ColorPalette.from_dict(palette_dict)
 
             # Apply it to the color manager
             on_palette_change_func(palette, "custom", None)
