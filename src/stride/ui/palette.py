@@ -481,6 +481,7 @@ class ColorPalette:
 
         # Remember old theme colours so we can detect custom assignments
         old_auto_colors = set(self.metric_theme)
+        old_theme = self._ui_theme
 
         self._ui_theme = theme
         self.metric_theme = list(TOL_METRICS_LIGHT if theme == "light" else TOL_METRICS_DARK)
@@ -489,12 +490,14 @@ class ColorPalette:
         self._reassign_and_reset(ColorCategory.SECTOR, old_auto_colors)
         self._reassign_and_reset(ColorCategory.END_USE, old_auto_colors)
 
-        # Re-sample model year colours
+        # Re-sample model year colours, preserving user-customised ones
         n_years = len(self.model_years)
         if n_years > 0:
+            old_model_year_auto = set(sample_iridescent(n_years, theme=old_theme))
             new_colors = sample_iridescent(n_years, theme=theme)
-            for (key, _), color in zip(list(self.model_years.items()), new_colors):
-                self.model_years[key] = color
+            for (key, old_color), color in zip(list(self.model_years.items()), new_colors):
+                if old_color in old_model_year_auto:
+                    self.model_years[key] = color
 
         self.model_year_theme = list(TOL_IRIDESCENT)
         self._model_year_iterator = cycle(self.model_year_theme)
@@ -696,6 +699,28 @@ class ColorPalette:
                 continue
             self._merge_category(project_names, cat)
 
+    def _get_theme(self, category: ColorCategory) -> list[str]:
+        """Return the color theme list for *category*."""
+        if category == ColorCategory.SCENARIO:
+            return self.scenario_theme
+        if category == ColorCategory.MODEL_YEAR:
+            return self.model_year_theme
+        return self.metric_theme
+
+    def _reset_iterator(self, category: ColorCategory, advance: int) -> None:
+        """Reset *category*'s iterator, advanced past *advance* entries."""
+        theme = self._get_theme(category)
+        new_iter = cycle(theme)
+        for _ in range(advance):
+            next(new_iter)
+        attr = {
+            ColorCategory.SCENARIO: "_scenario_iterator",
+            ColorCategory.MODEL_YEAR: "_model_year_iterator",
+            ColorCategory.SECTOR: "_sector_iterator",
+            ColorCategory.END_USE: "_end_use_iterator",
+        }[category]
+        setattr(self, attr, new_iter)
+
     def _merge_category(self, project_names: list[str], category: ColorCategory) -> None:
         """Merge a single category with the project's dimension names.
 
@@ -729,12 +754,7 @@ class ColorPalette:
         reserve_colors = [v for v in reserve_entries.values() if v not in used_colors]
 
         # 3. Build color iterator: reserve colors first, then theme (skipping used)
-        if category == ColorCategory.SCENARIO:
-            theme = self.scenario_theme
-        elif category == ColorCategory.MODEL_YEAR:
-            theme = self.model_year_theme
-        else:
-            theme = self.metric_theme
+        theme = self._get_theme(category)
 
         def _available_color_iter() -> Any:
             """Yield reserve colors first, then theme colors, skipping used."""
@@ -764,18 +784,7 @@ class ColorPalette:
                 target_dict[name] = new_assignments[name]
         target_dict.update(reserve_entries)
 
-        # Reset the iterator, advanced past the assigned entries
-        new_iter = cycle(theme)
-        for _ in range(len(target_dict)):
-            next(new_iter)
-        if category == ColorCategory.SCENARIO:
-            self._scenario_iterator = new_iter
-        elif category == ColorCategory.MODEL_YEAR:
-            self._model_year_iterator = new_iter
-        elif category == ColorCategory.SECTOR:
-            self._sector_iterator = new_iter
-        elif category == ColorCategory.END_USE:
-            self._end_use_iterator = new_iter
+        self._reset_iterator(category, len(target_dict))
 
         if category == ColorCategory.MODEL_YEAR:
             self._sort_model_years()

@@ -136,44 +136,6 @@ body {
 }
 
 /* Sidebar dropdown theming */
-/* Dash 3 (Select-*) */
-.dark-theme #sidebar .Select-control {
-    background-color: var(--bg-tertiary) !important;
-    border-color: var(--border-color) !important;
-}
-
-.dark-theme #sidebar .Select-value-label {
-    color: var(--text-primary) !important;
-}
-
-.dark-theme #sidebar .Select-placeholder {
-    color: var(--text-muted) !important;
-}
-
-.dark-theme #sidebar .Select-menu-outer {
-    background-color: var(--bg-tertiary) !important;
-    border-color: var(--border-color) !important;
-}
-
-.dark-theme #sidebar .Select-option {
-    background-color: var(--bg-tertiary) !important;
-    color: var(--text-primary) !important;
-}
-
-.dark-theme #sidebar .Select-option:hover,
-.dark-theme #sidebar .Select-option.is-focused {
-    background-color: var(--bg-hover) !important;
-}
-
-.dark-theme #sidebar .Select-arrow {
-    border-color: var(--text-muted) transparent transparent !important;
-}
-
-.dark-theme #sidebar .Select-input > input {
-    color: var(--text-primary) !important;
-}
-
-/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
 .dark-theme #sidebar .dash-dropdown-trigger {
     background-color: var(--bg-tertiary) !important;
     border-color: var(--border-color) !important;
@@ -309,66 +271,7 @@ body {
    DROPDOWNS & INPUTS
    ============================================ */
 
-/* Dash 3 (Select-*) */
-.dark-theme .Select-control,
-.dark-theme .dash-dropdown .Select-control {
-    background-color: var(--dropdown-bg) !important;
-    border-color: var(--input-border) !important;
-    color: var(--dropdown-text) !important;
-}
 
-.dark-theme .Select-placeholder,
-.dark-theme .Select-value-label {
-    color: var(--dropdown-text) !important;
-}
-
-.dark-theme .Select-menu-outer {
-    background-color: var(--dropdown-bg) !important;
-    border-color: var(--input-border) !important;
-}
-
-.dark-theme .Select-option {
-    background-color: var(--dropdown-bg) !important;
-    color: var(--dropdown-text) !important;
-}
-
-.dark-theme .Select-option:hover {
-    background-color: var(--dropdown-hover) !important;
-}
-
-.dark-theme .Select-option.is-selected {
-    background-color: var(--accent-primary) !important;
-    color: #ffffff !important;
-}
-
-/* Dropdown input field, arrow, and multi-value styling */
-.dark-theme .Select-input > input {
-    color: var(--dropdown-text) !important;
-}
-
-.dark-theme .Select-arrow {
-    border-top-color: var(--dropdown-text) !important;
-}
-
-.dark-theme .Select-arrow-zone:hover .Select-arrow {
-    border-top-color: var(--text-primary) !important;
-}
-
-.dark-theme .Select--single > .Select-control .Select-value {
-    color: var(--dropdown-text) !important;
-}
-
-.dark-theme .Select--multi .Select-value {
-    background-color: var(--accent-primary) !important;
-    border-color: var(--accent-primary) !important;
-    color: #ffffff !important;
-}
-
-.dark-theme .Select--multi .Select-value-icon:hover {
-    background-color: rgba(255, 255, 255, 0.15) !important;
-}
-
-/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
 .dark-theme .dash-dropdown-trigger {
     background-color: var(--dropdown-bg) !important;
     border-color: var(--input-border) !important;
@@ -411,16 +314,6 @@ body {
     background-color: var(--accent-primary) !important;
     color: #ffffff !important;
     color: #ffffff !important;
-}
-
-.dark-theme .Select.is-focused > .Select-control {
-    border-color: var(--accent-primary) !important;
-    background-color: var(--dropdown-bg) !important;
-}
-
-.dark-theme .Select.is-open > .Select-control {
-    background-color: var(--dropdown-bg) !important;
-    border-color: var(--accent-primary) !important;
 }
 
 /* Dash Bootstrap Components Dropdowns */
