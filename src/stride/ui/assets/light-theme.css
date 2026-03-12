@@ -135,14 +135,78 @@ body {
     color: var(--text-primary) !important;
 }
 
-/* Sidebar dropdown theming */
+/* Sidebar dropdown theming - sidebar uses dark styling in light mode */
+/* Dash 3 (Select-*) */
 .light-theme #sidebar .Select-control {
-    background-color: var(--bg-primary) !important;
-    border-color: var(--border-color) !important;
+    background-color: #3a3a3a !important;
+    border-color: #404040 !important;
 }
 
 .light-theme #sidebar .Select-value-label {
-    color: var(--text-primary) !important;
+    color: #e0e0e0 !important;
+}
+
+.light-theme #sidebar .Select-placeholder {
+    color: #808080 !important;
+}
+
+.light-theme #sidebar .Select-menu-outer {
+    background-color: #3a3a3a !important;
+    border-color: #404040 !important;
+}
+
+.light-theme #sidebar .Select-option {
+    background-color: #3a3a3a !important;
+    color: #e0e0e0 !important;
+}
+
+.light-theme #sidebar .Select-option:hover,
+.light-theme #sidebar .Select-option.is-focused {
+    background-color: #404040 !important;
+}
+
+.light-theme #sidebar .Select-arrow {
+    border-color: #808080 transparent transparent !important;
+}
+
+.light-theme #sidebar .Select-input > input {
+    color: #e0e0e0 !important;
+}
+
+/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
+.light-theme #sidebar .dash-dropdown-trigger {
+    background-color: #3a3a3a !important;
+    border-color: #404040 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-value {
+    color: #e0e0e0 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-placeholder {
+    color: #808080 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-content {
+    background-color: #3a3a3a !important;
+    border-color: #404040 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-option {
+    background-color: #3a3a3a !important;
+    color: #e0e0e0 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-option:hover {
+    background-color: #404040 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-trigger-icon {
+    color: #808080 !important;
+}
+
+.light-theme #sidebar .dash-dropdown-search {
+    color: #e0e0e0 !important;
 }
 
 /* Sidebar settings button - match nav tabs */
@@ -245,6 +309,7 @@ body {
    DROPDOWNS & INPUTS
    ============================================ */
 
+/* Dash 3 (Select-*) */
 .light-theme .Select-control,
 .light-theme .dash-dropdown .Select-control {
     background-color: var(--dropdown-bg) !important;
@@ -274,6 +339,41 @@ body {
 .light-theme .Select-option.is-selected {
     background-color: var(--accent-primary) !important;
     color: #ffffff !important;
+}
+
+/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
+.light-theme .dash-dropdown-trigger {
+    background-color: var(--dropdown-bg) !important;
+    border-color: var(--input-border) !important;
+    color: var(--dropdown-text) !important;
+}
+
+.light-theme .dash-dropdown-placeholder,
+.light-theme .dash-dropdown-value {
+    color: var(--dropdown-text) !important;
+}
+
+.light-theme .dash-dropdown-content {
+    background-color: var(--dropdown-bg) !important;
+    border-color: var(--input-border) !important;
+}
+
+.light-theme .dash-dropdown-option {
+    background-color: var(--dropdown-bg) !important;
+    color: var(--dropdown-text) !important;
+}
+
+.light-theme .dash-dropdown-option:hover {
+    background-color: var(--dropdown-hover) !important;
+}
+
+.light-theme .dash-dropdown-option[aria-selected="true"] {
+    background-color: var(--accent-primary) !important;
+    color: #ffffff !important;
+}
+
+.light-theme .dash-dropdown-search {
+    color: var(--dropdown-text) !important;
 }
 
 /* Dash Bootstrap Components Dropdowns */
@@ -368,6 +468,10 @@ body {
 }
 
 .light-theme .btn-outline-danger.theme-text {
+    color: #212529 !important;
+}
+
+.light-theme .btn-outline-secondary.theme-text {
     color: #212529 !important;
 }
 

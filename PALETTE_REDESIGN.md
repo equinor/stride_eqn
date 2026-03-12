@@ -143,9 +143,9 @@ labels.
 
 ---
 
-## Phase 3 — Settings UI Overhaul
+## Phase 3 — Settings UI Overhaul ✅
 
-**Status:** Not started.
+**Status:** Complete. All 404 tests pass (387 main + 17 TUI).
 
 **Goal:** Simplify the settings pane: add "Default" palette source, "Reset to
 Defaults" button, collapse save actions, show sectors / end uses separately.

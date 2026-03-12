@@ -13,13 +13,16 @@ from stride.ui.settings.layout import (
     clear_temp_color_edits,
     create_color_preview_content,
     get_temp_color_edits,
+    parse_temp_edit_key,
     set_temp_color_edit,
 )
 from stride.ui.tui import (
     delete_user_palette,
+    get_default_user_palette,
     list_user_palettes,
     load_user_palette,
     save_user_palette,
+    set_default_user_palette,
 )
 
 
@@ -94,15 +97,16 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         # Close modal and apply color on apply button
         if triggered_id == "color-picker-apply-btn":
             if current_label and picked_color:
-                # Store the color change temporarily
+                # current_label is a composite key "category:label"
                 set_temp_color_edit(current_label, picked_color)
-                logger.info(f"Temporarily updated color for '{current_label}' to {picked_color}")
+                _, display_label = parse_temp_edit_key(current_label)
+                logger.info(f"Temporarily updated color for '{display_label}' to {picked_color}")
                 # Increment counter to trigger refresh (will be handled by separate callback)
             return False, None, "", "#000000", "#000000", no_update  # type: ignore[return-value]
 
         # Open modal when a color item is clicked
         if isinstance(triggered_id, dict) and triggered_id.get("type") == "color-item":
-            # Get the index of the clicked item
+            # Get the index of the clicked item (composite key "category:label")
             index = triggered_id.get("index")
             if index is None:
                 raise PreventUpdate
@@ -125,12 +129,15 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             if color_manager is None:
                 raise PreventUpdate
 
+            # Parse composite key to get category and label
+            category_str, label = parse_temp_edit_key(index)
+
             # Get current color (check temp edits first)
             temp_edits = get_temp_color_edits()
             if index in temp_edits:
                 current_color = temp_edits[index]
             else:
-                current_color = color_manager.get_color(index)
+                current_color = color_manager.get_color(label, category_str)
 
             # Convert color to hex format for the color input
             hex_color = _convert_to_hex(current_color)
@@ -138,13 +145,33 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             return (
                 True,
                 index,
-                f"Edit Color: {index}",
+                f"Edit Color: {label}",
                 hex_color,
                 hex_color,
                 no_update,  # type: ignore[return-value]
             )
 
         raise PreventUpdate
+
+    @callback(
+        Output("unsaved-changes-indicator", "children"),
+        Input("color-edits-counter", "data"),
+        Input("settings-palette-applied", "data"),
+        prevent_initial_call=True,
+    )
+    def update_unsaved_indicator(
+        counter: int, palette_data: dict[str, Any]
+    ) -> html.Div | str:
+        """Show an indicator when there are unsaved color edits."""
+        temp_edits = get_temp_color_edits()
+        if temp_edits:
+            n = len(temp_edits)
+            label = "change" if n == 1 else "changes"
+            return html.Div(
+                f"⚠ {n} unsaved color {label}. Use the save options below to keep them.",
+                className="text-warning small mt-1 mb-2",
+            )
+        return ""
 
     @callback(
         Output("color-preview-container", "children"),
@@ -203,27 +230,76 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         Output("user-palette-selector-container", "style"),
         Output("user-palette-selector", "disabled"),
         Output("delete-user-palette-btn", "disabled"),
+        Output("set-default-palette-btn", "disabled"),
         Input("palette-type-selector", "value"),
         State("user-palette-selector", "value"),
     )
     def toggle_user_palette_selector(
         palette_type: str, selected_palette: str | None
-    ) -> tuple[dict[str, str], bool, bool]:
+    ) -> tuple[dict[str, str], bool, bool, bool]:
         """Enable/disable user palette selector based on palette type."""
         if palette_type == "user":
-            return {"display": "block"}, False, not selected_palette
-        else:
-            return {"display": "none"}, True, True
+            return {"display": "block"}, False, not selected_palette, not selected_palette
+        return {"display": "none"}, True, True, True
 
     @callback(
         Output("delete-user-palette-btn", "disabled", allow_duplicate=True),
+        Output("set-default-palette-btn", "disabled", allow_duplicate=True),
         Input("user-palette-selector", "value"),
         State("palette-type-selector", "value"),
         prevent_initial_call=True,
     )
-    def update_delete_button(selected_palette: str | None, palette_type: str) -> bool:
-        """Enable/disable delete button based on whether a palette is selected."""
-        return palette_type == "project" or not selected_palette
+    def update_delete_button(
+        selected_palette: str | None, palette_type: str
+    ) -> tuple[bool, bool]:
+        """Enable/disable delete and set-default buttons based on selection."""
+        disabled = palette_type != "user" or not selected_palette
+        return disabled, disabled
+
+    @callback(
+        Output("set-default-palette-btn", "children", allow_duplicate=True),
+        Output("set-default-palette-btn", "color", allow_duplicate=True),
+        Output("default-user-palette-store", "data", allow_duplicate=True),
+        Input("set-default-palette-btn", "n_clicks"),
+        State("user-palette-selector", "value"),
+        State("default-user-palette-store", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_default_palette(
+        n_clicks: int | None,
+        selected_palette: str | None,
+        current_default: str | None,
+    ) -> tuple[str, str, str | None]:
+        """Toggle setting/clearing the dashboard default palette."""
+        if not n_clicks or not selected_palette:
+            raise PreventUpdate
+
+        if current_default == selected_palette:
+            # Clear the default
+            set_default_user_palette(None)
+            logger.info("Cleared default user palette")
+            return "Set as Dashboard Default", "secondary", None
+        else:
+            # Set as default
+            set_default_user_palette(selected_palette)
+            logger.info(f"Set default user palette to: {selected_palette}")
+            return "Dashboard Default \u2713 (Clear)", "success", selected_palette
+
+    @callback(
+        Output("set-default-palette-btn", "children", allow_duplicate=True),
+        Output("set-default-palette-btn", "color", allow_duplicate=True),
+        Input("user-palette-selector", "value"),
+        State("default-user-palette-store", "data"),
+        prevent_initial_call=True,
+    )
+    def update_default_button_label(
+        selected_palette: str | None,
+        current_default: str | None,
+    ) -> tuple[str, str]:
+        """Update default button label when palette selection changes."""
+        if selected_palette and selected_palette == current_default:
+            return "Dashboard Default \u2713 (Clear)", "success"
+        return "Set as Dashboard Default", "secondary"
 
     @callback(
         Output("revert-changes-status", "children"),
@@ -347,7 +423,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 logger.info("Switched to project palette")
                 return {"type": "project", "name": None}, counter + 1
 
-            elif (
+            if (
                 triggered_id == "palette-type-selector"
                 and palette_type == "user"
                 and user_palette_name
@@ -363,7 +439,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                     logger.error(f"Error loading user palette '{user_palette_name}': {e}")
                     raise PreventUpdate
 
-            elif triggered_id == "user-palette-selector" and user_palette_name:
+            if triggered_id == "user-palette-selector" and user_palette_name:
                 # User selected a different user palette from dropdown
                 try:
                     logger.info(f"Switching to user palette: {user_palette_name}")
@@ -383,87 +459,69 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             raise PreventUpdate
 
     @callback(
-        Output("save-palette-status", "children"),
-        Input("save-current-palette-btn", "n_clicks"),
-        State("settings-palette-applied", "data"),
+        Output("palette-type-selector", "value"),
+        Output("settings-palette-applied", "data", allow_duplicate=True),
+        Output("color-edits-counter", "data", allow_duplicate=True),
+        Input("reset-to-defaults-btn", "n_clicks"),
+        State("color-edits-counter", "data"),
         prevent_initial_call=True,
     )
-    def save_current_palette(
+    def reset_to_defaults(
         n_clicks: int | None,
-        current_palette_data: dict[str, Any],
-    ) -> html.Div:
-        """Save edits to the currently active palette."""
+        counter: int,
+    ) -> tuple[str, dict[str, Any], int]:
+        """Reset palette to defaults by creating fresh TOL colors and switching to project mode."""
         if not n_clicks:
             raise PreventUpdate
 
-        try:
-            data_handler = get_data_handler_func()
-            color_manager = get_color_manager_func()
+        data_handler = get_data_handler_func()
+        if data_handler is None:
+            raise PreventUpdate
 
-            if data_handler is None or color_manager is None:
-                return html.Div(
-                    "✗ Error: No project loaded",
-                    className="text-danger mt-2",
-                )
+        # Create fresh palette from TOL themes + project dimensions
+        palette = ColorPalette()
+        data_handler.project._palette = palette
+        data_handler.project._auto_populate_palette()
+        palette = data_handler.project._palette
 
-            # Apply temporary edits to a copy of the palette
-            temp_edits = get_temp_color_edits()
-            palette = color_manager.get_palette()
-            palette_copy = palette.copy()
-            for label, color in temp_edits.items():
-                palette_copy.update(label, color)
+        # Save to project so it persists
+        data_handler.project.save_palette()
 
-            # Get the palette data from the copy
-            palette_data = palette_copy.to_dict()
+        clear_temp_color_edits()
+        on_palette_change_func(palette, "project", None)
+        logger.info("Reset palette to defaults and saved to project")
 
-            # Determine where to save based on current palette type
-            palette_type = current_palette_data.get("type", "project")
-            palette_name = current_palette_data.get("name")
-
-            if palette_type == "project":
-                # Update project's palette with the modified copy
-                data_handler.project._palette = palette_copy
-                data_handler.project.save_palette()
-                message = "✓ Palette saved to project"
-            elif palette_type == "user" and palette_name:
-                # Save to existing user palette
-                save_user_palette(palette_name, palette_data)
-                message = f"✓ Palette saved to '{palette_name}'"
-            else:
-                return html.Div(
-                    "✗ Error: No active palette to save to",
-                    className="text-danger mt-2",
-                )
-
-            # Clear temporary edits after saving
-            clear_temp_color_edits()
-
-            # Refresh the palette in the UI by calling on_palette_change
-            if palette_type == "project":
-                on_palette_change_func(palette_copy, "project", None)
-            elif palette_type == "user" and palette_name:
-                on_palette_change_func(palette_copy, "user", palette_name)
-
-            logger.info(f"Saved current palette ({palette_type}: {palette_name or 'project'})")
-            return html.Div(
-                message,
-                className="text-success mt-2",
-            )
-        except Exception as e:
-            logger.error(f"Error saving current palette: {e}")
-            return html.Div(
-                f"✗ Error: {str(e)}",
-                className="text-danger mt-2",
-            )
+        return "project", {"type": "project", "name": None}, counter + 1
 
     @callback(
-        Output("save-palette-status", "children", allow_duplicate=True),
+        Output("palette-source-hint", "children"),
+        Input("palette-type-selector", "value"),
+        Input("user-palette-selector", "value"),
+        prevent_initial_call=True,
+    )
+    def update_palette_source_hint(
+        palette_type: str, user_palette_name: str | None
+    ) -> html.Div | str:
+        """Show a hint when user palette is selected."""
+        if palette_type == "user" and user_palette_name:
+            return html.Div(
+                f"Viewing user palette '{user_palette_name}'. "
+                "Changes apply to this session only. "
+                "Use 'Save to Project' to make permanent.",
+                className="text-info small mt-1 mb-2",
+            )
+        return ""
+
+    @callback(
+        Output("save-palette-status", "children"),
+        Output("palette-type-selector", "value", allow_duplicate=True),
+        Output("settings-palette-applied", "data", allow_duplicate=True),
         Input("save-to-project-btn", "n_clicks"),
         prevent_initial_call=True,
     )
     def save_to_project(
         n_clicks: int | None,
-    ) -> html.Div:
+    ) -> tuple[html.Div, str, dict[str, Any]]:
         """Save current palette to project.json."""
         if not n_clicks:
             raise PreventUpdate
@@ -473,17 +531,22 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             color_manager = get_color_manager_func()
 
             if data_handler is None or color_manager is None:
-                return html.Div(
-                    "✗ Error: No project loaded",
-                    className="text-danger mt-2",
+                return (
+                    html.Div(
+                        "✗ Error: No project loaded",
+                        className="text-danger mt-2",
+                    ),
+                    no_update,  # type: ignore[return-value]
+                    no_update,  # type: ignore[return-value]
                 )
 
             # Apply temporary edits to a copy of the palette
             temp_edits = get_temp_color_edits()
             palette = color_manager.get_palette()
             palette_copy = palette.copy()
-            for label, color in temp_edits.items():
-                palette_copy.update(label, color)
+            for composite_key, color in temp_edits.items():
+                cat_str, label = parse_temp_edit_key(composite_key)
+                palette_copy.update(label, color, category=cat_str)
 
             # Update project's palette with the modified copy
             data_handler.project._palette = palette_copy
@@ -497,15 +560,23 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             on_palette_change_func(palette_copy, "project", None)
 
             logger.info("Saved palette to project")
-            return html.Div(
-                "✓ Palette saved to project",
-                className="text-success mt-2",
+            return (
+                html.Div(
+                    "✓ Palette saved to project",
+                    className="text-success mt-2",
+                ),
+                "project",
+                {"type": "project", "name": None},
             )
         except Exception as e:
             logger.error(f"Error saving palette to project: {e}")
-            return html.Div(
-                f"✗ Error: {str(e)}",
-                className="text-danger mt-2",
+            return (
+                html.Div(
+                    f"✗ Error: {str(e)}",
+                    className="text-danger mt-2",
+                ),
+                no_update,  # type: ignore[return-value]
+                no_update,  # type: ignore[return-value]
             )
 
     @callback(
@@ -525,6 +596,8 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         Output("save-new-palette-name", "value"),
         Output("user-palette-selector", "options", allow_duplicate=True),
         Output("user-palette-selector", "value", allow_duplicate=True),
+        Output("palette-type-selector", "value", allow_duplicate=True),
+        Output("settings-palette-applied", "data", allow_duplicate=True),
         Input("save-to-new-palette-btn", "n_clicks"),
         State("save-new-palette-name", "value"),
         prevent_initial_call=True,
@@ -532,7 +605,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
     def save_to_new_palette(
         n_clicks: int | None,
         palette_name: str | None,
-    ) -> tuple[html.Div, dict[str, str], str, list[dict[str, str]], str]:
+    ) -> tuple[html.Div, dict[str, str], str, list[dict[str, str]], str, str, dict[str, Any]]:
         """Save current palette to a new user palette."""
         if not n_clicks:
             raise PreventUpdate
@@ -548,6 +621,8 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 "",
                 no_update,  # type: ignore[return-value]
                 no_update,  # type: ignore[return-value]
+                no_update,  # type: ignore[return-value]
+                no_update,  # type: ignore[return-value]
             )
 
         try:
@@ -557,8 +632,9 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             temp_edits = get_temp_color_edits()
             palette = color_manager.get_palette()
             palette_copy = palette.copy()
-            for label, color in temp_edits.items():
-                palette_copy.update(label, color)
+            for composite_key, color in temp_edits.items():
+                cat_str, label = parse_temp_edit_key(composite_key)
+                palette_copy.update(label, color, category=cat_str)
 
             # Get the palette data from the copy
             palette_data = palette_copy.to_dict()
@@ -578,15 +654,18 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             on_palette_change_func(palette_copy, "user", palette_name.strip())
 
             logger.info(f"Saved palette to new user palette: {palette_name}")
+            trimmed = palette_name.strip()
             return (
                 html.Div(
-                    f"✓ Palette saved as '{palette_name.strip()}'",
+                    f"✓ Palette saved as '{trimmed}'",
                     className="text-success mt-2",
                 ),
                 {"display": "none"},
                 "",
                 updated_options,
-                palette_name.strip(),
+                trimmed,
+                "user",
+                {"type": "user", "name": trimmed},
             )
         except Exception as e:
             logger.error(f"Error saving new palette: {e}")
@@ -597,6 +676,8 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 ),
                 {"display": "block"},
                 palette_name,
+                no_update,  # type: ignore[return-value]
+                no_update,  # type: ignore[return-value]
                 no_update,  # type: ignore[return-value]
                 no_update,  # type: ignore[return-value]
             )
@@ -750,8 +831,9 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         temp_edits = get_temp_color_edits()
 
         # Apply temp edits to get the current state
-        for label, color in temp_edits.items():
-            palette.update(label, color)
+        for composite_key, color in temp_edits.items():
+            cat_str, label = parse_temp_edit_key(composite_key)
+            palette.update(label, color, category=cat_str)
 
         # Get the palette as a dict
         palette_dict = palette.to_dict()

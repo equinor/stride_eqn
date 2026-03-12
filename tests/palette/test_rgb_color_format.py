@@ -3,7 +3,7 @@
 import pytest
 
 from stride.ui.color_manager import ColorManager
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 
 def test_rgb_format_in_palette() -> None:
@@ -156,7 +156,7 @@ def test_palette_update_with_rgb() -> None:
     palette = ColorPalette()
 
     # Update with rgb format
-    palette.update("Label1", "rgb(100,150,200)")
+    palette.update("Label1", "rgb(100,150,200)", category=ColorCategory.SECTOR)
 
     # Should be preserved
     assert palette.get("Label1") == "rgb(100,150,200)"
@@ -167,7 +167,7 @@ def test_palette_update_with_rgba() -> None:
     palette = ColorPalette()
 
     # Update with rgba format
-    palette.update("Label1", "rgba(100,150,200,0.7)")
+    palette.update("Label1", "rgba(100,150,200,0.7)", category=ColorCategory.SECTOR)
 
     # Should be preserved
     assert palette.get("Label1") == "rgba(100,150,200,0.7)"

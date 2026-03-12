@@ -14,7 +14,7 @@ from stride.ui.plotting.utils import (
     get_warning_annotation_style,
 )
 from stride.ui.palette import ColorCategory
-from stride.ui.settings.layout import get_temp_color_edits
+from stride.ui.settings.layout import get_temp_edits_for_category
 
 if TYPE_CHECKING:
     from stride.api import APIClient
@@ -907,8 +907,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -918,8 +918,8 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
@@ -999,8 +999,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -1010,8 +1010,8 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
@@ -1091,8 +1091,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -1102,8 +1102,8 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
@@ -1183,8 +1183,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -1194,8 +1194,8 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)

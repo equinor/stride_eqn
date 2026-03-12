@@ -46,26 +46,26 @@ class TestColorPaletteUpdate:
     def test_update_with_valid_hex(self) -> None:
         """Test updating with a valid hex color."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#FF5733"
 
     def test_update_with_valid_hex_alpha(self) -> None:
         """Test updating with a valid hex color with alpha."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733CC")
+        palette.update("residential", "#FF5733CC", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#FF5733CC"
 
     def test_update_with_none(self) -> None:
         """Test that None generates a new color."""
         palette = ColorPalette()
-        palette.update("residential", None)
+        palette.update("residential", None, category=ColorCategory.SECTOR)
         assert "residential" in palette.palette
         assert palette.palette["residential"] is not None
 
     def test_update_with_invalid_string(self) -> None:
         """Test that invalid color strings generate new colors."""
         palette = ColorPalette()
-        palette.update("residential", "not_a_hex")
+        palette.update("residential", "not_a_hex", category=ColorCategory.SECTOR)
         assert "residential" in palette.palette
         assert palette.palette["residential"] != "not_a_hex"
 
@@ -73,13 +73,13 @@ class TestColorPaletteUpdate:
         """Test that non-string keys raise TypeError."""
         palette = ColorPalette()
         with pytest.raises(TypeError, match="Key must be a string"):
-            palette.update(123, "#FF5733")  # type: ignore[arg-type]
+            palette.update(123, "#FF5733", category=ColorCategory.SECTOR)  # type: ignore[arg-type]
 
     def test_update_overwrites_existing(self) -> None:
         """Test that update overwrites existing colors."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
-        palette.update("residential", "#3498DB")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette.update("residential", "#3498DB", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#3498DB"
 
 
@@ -89,7 +89,7 @@ class TestColorPaletteGet:
     def test_get_existing_color(self) -> None:
         """Test getting an existing color."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         color = palette.get("residential")
         assert color == "#FF5733"
 
@@ -115,8 +115,8 @@ class TestColorPalettePop:
     def test_pop_existing_key(self) -> None:
         """Test popping an existing key."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
-        color = palette.pop("residential")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        color = palette.pop("residential", category=ColorCategory.SECTOR)
         assert color == "#FF5733"
         assert "residential" not in palette.palette
 
@@ -124,7 +124,7 @@ class TestColorPalettePop:
         """Test that popping a nonexistent key raises KeyError."""
         palette = ColorPalette()
         with pytest.raises(KeyError, match="unable to remove key"):
-            palette.pop("nonexistent")
+            palette.pop("nonexistent", category=ColorCategory.SECTOR)
 
 
 class TestColorPaletteFromDict:
@@ -207,9 +207,9 @@ class TestColorPaletteRoundTrip:
     def test_round_trip_preserves_colors(self) -> None:
         """Test that to_dict and from_dict preserve colors."""
         original = ColorPalette()
-        original.update("residential", "#FF5733")
-        original.update("commercial", "#3498DB")
-        original.update("industrial", "#2ECC71")
+        original.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        original.update("commercial", "#3498DB", category=ColorCategory.SECTOR)
+        original.update("industrial", "#2ECC71", category=ColorCategory.SECTOR)
 
         # Serialize and deserialize
         dict_repr = original.to_dict()
@@ -241,8 +241,8 @@ class TestColorPaletteColorGeneration:
         palette1 = ColorPalette()
         palette2 = ColorPalette()
 
-        palette1.update("residential", "#FF5733")
-        palette2.update("residential", "#3498DB")
+        palette1.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette2.update("residential", "#3498DB", category=ColorCategory.SECTOR)
 
         assert palette1.get("residential") == "#FF5733"
         assert palette2.get("residential") == "#3498DB"
@@ -254,44 +254,44 @@ class TestColorPaletteHexValidation:
     def test_valid_6_digit_hex(self) -> None:
         """Test that 6-digit hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#FF5733")
+        palette.update("test", "#FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#FF5733"
 
     def test_valid_8_digit_hex(self) -> None:
         """Test that 8-digit hex colors (with alpha) are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#FF5733CC")
+        palette.update("test", "#FF5733CC", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#FF5733CC"
 
     def test_lowercase_hex(self) -> None:
         """Test that lowercase hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#ff5733")
+        palette.update("test", "#ff5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#ff5733"
 
     def test_mixed_case_hex(self) -> None:
         """Test that mixed case hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#Ff5733")
+        palette.update("test", "#Ff5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#Ff5733"
 
     def test_invalid_short_hex(self) -> None:
         """Test that short hex colors are rejected."""
         palette = ColorPalette()
-        palette.update("test", "#F57")
+        palette.update("test", "#F57", category=ColorCategory.SECTOR)
         # Should be replaced with auto-generated color
         assert palette.palette["test"] != "#F57"
 
     def test_invalid_no_hash(self) -> None:
         """Test that colors without # are rejected."""
         palette = ColorPalette()
-        palette.update("test", "FF5733")
+        palette.update("test", "FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] != "FF5733"
 
     def test_invalid_non_hex_chars(self) -> None:
         """Test that non-hex characters are rejected."""
         palette = ColorPalette()
-        palette.update("test", "#GGGGGG")
+        palette.update("test", "#GGGGGG", category=ColorCategory.SECTOR)
         assert palette.palette["test"] != "#GGGGGG"
 
 
@@ -686,3 +686,45 @@ class TestMergeWithProjectDimensions:
         palette.merge_with_project_dimensions(scenarios=["Baseline"])
         assert palette.scenarios["baseline"] == "#AA0000"
         assert len(palette.scenarios) == 1
+
+
+class TestUpdateRequiresCategory:
+    """Test that update() and pop() require an explicit category."""
+
+    def test_update_requires_category(self) -> None:
+        """Calling update() without category should raise TypeError."""
+        palette = ColorPalette()
+        with pytest.raises(TypeError):
+            palette.update("baseline", "#AA0000")  # type: ignore[call-arg]
+
+    def test_pop_requires_category(self) -> None:
+        """Calling pop() without category should raise TypeError."""
+        palette = ColorPalette()
+        palette.update("baseline", "#AA0000", category=ColorCategory.SCENARIO)
+        with pytest.raises(TypeError):
+            palette.pop("baseline")  # type: ignore[call-arg]
+
+    def test_duplicate_label_across_categories(self) -> None:
+        """Same label can exist in multiple categories independently."""
+        palette = ColorPalette()
+        palette.update("2025", "#AA0000", category=ColorCategory.MODEL_YEAR)
+        palette.update("2025", "#BB0000", category=ColorCategory.SECTOR)
+        assert palette.model_years["2025"] == "#AA0000"
+        assert palette.sectors["2025"] == "#BB0000"
+
+    def test_roundtrip_temp_edits_with_explicit_category(self) -> None:
+        """Simulate the save flow: copy palette, apply edits with category."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {"2025": "#BB0000"},
+                "sectors": {"residential": "#CC0000"},
+                "end_uses": {"heating": "#DD0000"},
+            }
+        )
+        palette_copy = palette.copy()
+        palette_copy.update("2025", "#112233", category=ColorCategory.MODEL_YEAR)
+        palette_copy.update("residential", "#445566", category=ColorCategory.SECTOR)
+
+        assert palette_copy.model_years["2025"] == "#112233"
+        assert palette_copy.sectors["residential"] == "#445566"

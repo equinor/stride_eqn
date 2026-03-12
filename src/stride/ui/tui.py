@@ -1209,3 +1209,31 @@ def get_default_user_palette() -> str | None:
     """
     config = load_stride_config()
     return config.get("default_user_palette")
+
+
+def set_palette_priority(priority: str) -> None:
+    """Set the palette priority for dashboard launch.
+
+    Parameters
+    ----------
+    priority : str
+        Priority setting: "user" to prefer user palette, "project" to prefer project palette
+    """
+    if priority not in ("user", "project"):
+        msg = f"Invalid palette priority: {priority!r}. Must be 'user' or 'project'."
+        raise ValueError(msg)
+    config = load_stride_config()
+    config["palette_priority"] = priority
+    save_stride_config(config)
+
+
+def get_palette_priority() -> str:
+    """Get the palette priority for dashboard launch.
+
+    Returns
+    -------
+    str
+        Priority setting: "user" or "project". Defaults to "user".
+    """
+    config = load_stride_config()
+    return config.get("palette_priority", "user")

@@ -658,18 +658,20 @@ def view(
     """
     from stride.api import APIClient
     from stride.ui.app import create_app, create_app_no_project
-    from stride.ui.tui import get_default_user_palette, load_user_palette
+    from stride.ui.tui import get_default_user_palette, get_palette_priority, load_user_palette
 
     # Determine which palette to use
     palette_override = None
     palette_name = None
 
     if user_palette:
-        # Explicit user palette override
+        # Explicit user palette override (always honored)
         palette_name = user_palette
     elif not no_default_palette:
-        # Check for default user palette
-        palette_name = get_default_user_palette()
+        # Check palette priority and default user palette
+        priority = get_palette_priority()
+        if priority == "user":
+            palette_name = get_default_user_palette()
 
     if palette_name:
         try:
@@ -1202,6 +1204,50 @@ def get_default_palette() -> None:
         print("Set one with: stride palette set-default <palette-name>")
 
 
+@click.command(name="set-priority")
+@click.argument("priority", type=click.Choice(["user", "project"]))
+def set_priority(priority: str) -> None:
+    """Set which palette takes priority when launching the dashboard.
+
+    When set to "user", the default user palette (if set) will override the
+    project palette on dashboard launch. When set to "project", the project
+    palette is always used unless --user-palette is specified.
+
+    Examples:
+
+    $ stride palette set-priority user
+
+    $ stride palette set-priority project
+    """
+    from stride.ui.tui import set_palette_priority
+
+    set_palette_priority(priority)
+    if priority == "user":
+        print("Palette priority set to: user")
+        print("Default user palette (if set) will override project palette on launch.")
+    else:
+        print("Palette priority set to: project")
+        print("Project palette will always be used unless --user-palette is specified.")
+
+
+@click.command(name="get-priority")
+def get_priority() -> None:
+    """Show the current palette priority setting.
+
+    Examples:
+
+    $ stride palette get-priority
+    """
+    from stride.ui.tui import get_palette_priority
+
+    priority = get_palette_priority()
+    print(f"Palette priority: {priority}")
+    if priority == "user":
+        print("Default user palette (if set) will override project palette on launch.")
+    else:
+        print("Project palette will always be used unless --user-palette is specified.")
+
+
 _palette_refresh_epilog = """
 Examples:\n
 # Fix palette colors for a project\n
@@ -1299,4 +1345,6 @@ palette.add_command(init_palette)
 palette.add_command(list_palettes)
 palette.add_command(set_default_palette)
 palette.add_command(get_default_palette)
+palette.add_command(set_priority)
+palette.add_command(get_priority)
 palette.add_command(refresh_palette)

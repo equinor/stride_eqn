@@ -3,7 +3,7 @@
 import pytest
 
 from stride.ui.color_manager import ColorManager
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 
 def test_color_manager_updates_with_new_palette() -> None:
@@ -179,7 +179,7 @@ def test_color_manager_preserves_palette_reference() -> None:
     assert retrieved_palette is palette
 
     # Update palette directly
-    palette.update("NewLabel", "#ABCDEF")
+    palette.update("NewLabel", "#ABCDEF", category=ColorCategory.SECTOR)
 
     # ColorManager should see the change
     color = cm.get_color("NewLabel")

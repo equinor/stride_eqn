@@ -337,12 +337,28 @@ class ColorPalette:
         self.model_years.clear()
         self.model_years.update(sorted_items)
 
-    def _reassign_and_reset(self, category: ColorCategory) -> None:
-        """Re-colour all entries in *category* from position 0 and reset its iterator."""
+    def _reassign_and_reset(
+        self,
+        category: ColorCategory,
+        auto_colors: set[str] | None = None,
+    ) -> None:
+        """Re-colour entries in *category* from position 0 and reset its iterator.
+
+        Parameters
+        ----------
+        auto_colors : set[str] | None
+            When provided, only colours that appear in this set are
+            overwritten; all others are treated as user-customised and
+            preserved.  Pass ``None`` to overwrite everything (legacy
+            behaviour used by ``reset_to_defaults``).
+        """
         target_dict, _ = self._get_target(category)
         fresh = cycle(self.metric_theme)
         for key in target_dict:
-            target_dict[key] = next(fresh)
+            new_color = next(fresh)
+            if auto_colors is None or target_dict[key] in auto_colors:
+                target_dict[key] = new_color
+            # else: preserve user-customised colour
         # Reset iterator, advanced past assigned entries
         new_iter = cycle(self.metric_theme)
         for _ in range(len(target_dict)):
@@ -358,7 +374,8 @@ class ColorPalette:
         self,
         key: str,
         color: str | None = None,
-        category: ColorCategory | str | None = None,
+        *,
+        category: ColorCategory | str,
     ) -> None:
         """Update or create a color for the given *key*.
 
@@ -371,16 +388,18 @@ class ColorPalette:
         color : str | None, optional
             A hex or rgb/rgba color string.  If ``None`` or invalid a new
             color is assigned from the category's theme.
-        category : ColorCategory | str | None, optional
-            Target category.  When ``None`` the key is auto-detected or
-            defaults to ``ColorCategory.SECTOR``.
+        category : ColorCategory | str
+            Target category (required).
         """
         if not isinstance(key, str):
             msg = "ColorPalette: Key must be a string"
             raise TypeError(msg)
 
         key = key.lower()
-        resolved = self._resolve_str_category(category) or ColorCategory.SECTOR
+        resolved = self._resolve_str_category(category)
+        if resolved is None:
+            msg = "ColorPalette.update() requires a valid category"
+            raise ValueError(msg)
         target_dict, iterator = self._get_target(resolved)
         target_dict[key] = color if self._is_valid_color(color) else next(iterator)
 
@@ -420,15 +439,15 @@ class ColorPalette:
         target_dict[key] = color
         return color
 
-    def pop(self, key: str, category: ColorCategory | str | None = None) -> str:
+    def pop(self, key: str, *, category: ColorCategory | str) -> str:
         """Remove *key* from the palette and return its color.
 
         Parameters
         ----------
         key : str
             Key to remove.
-        category : ColorCategory | str | None, optional
-            Specific category.  If ``None``, all categories are searched.
+        category : ColorCategory | str
+            Category to remove from (required).
 
         Raises
         ------
@@ -437,12 +456,13 @@ class ColorPalette:
         """
         key = key.lower()
         resolved = self._resolve_str_category(category)
+        if resolved is None:
+            msg = "ColorPalette.pop() requires a valid category"
+            raise ValueError(msg)
 
-        search = [resolved] if resolved is not None else list(ColorCategory)
-        for cat in search:
-            d, _ = self._get_target(cat)
-            if key in d:
-                return d.pop(key)
+        d, _ = self._get_target(resolved)
+        if key in d:
+            return d.pop(key)
 
         msg = f"ColorPalette: unable to remove key: {key}"
         raise KeyError(msg)
@@ -451,18 +471,23 @@ class ColorPalette:
         """Switch palettes for the given UI theme (``"light"`` or ``"dark"``).
 
         Updates the metric theme, re-assigns sector/end-use colours, and
-        re-samples Iridescent colours for model years.
+        re-samples Iridescent colours for model years.  Colours that have
+        been manually customised (i.e. do not appear in the old metric
+        theme) are preserved.
         """
         if theme not in ("light", "dark"):
             msg = f"Invalid UI theme: {theme!r}. Must be 'light' or 'dark'."
             raise ValueError(msg)
 
+        # Remember old theme colours so we can detect custom assignments
+        old_auto_colors = set(self.metric_theme)
+
         self._ui_theme = theme
         self.metric_theme = list(TOL_METRICS_LIGHT if theme == "light" else TOL_METRICS_DARK)
 
-        # Re-assign sector and end-use colours from position 0
-        self._reassign_and_reset(ColorCategory.SECTOR)
-        self._reassign_and_reset(ColorCategory.END_USE)
+        # Re-assign sector and end-use colours, preserving custom ones
+        self._reassign_and_reset(ColorCategory.SECTOR, old_auto_colors)
+        self._reassign_and_reset(ColorCategory.END_USE, old_auto_colors)
 
         # Re-sample model year colours
         n_years = len(self.model_years)

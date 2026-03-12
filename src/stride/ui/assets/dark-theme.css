@@ -136,12 +136,76 @@ body {
 }
 
 /* Sidebar dropdown theming */
+/* Dash 3 (Select-*) */
 .dark-theme #sidebar .Select-control {
     background-color: var(--bg-tertiary) !important;
     border-color: var(--border-color) !important;
 }
 
 .dark-theme #sidebar .Select-value-label {
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .Select-placeholder {
+    color: var(--text-muted) !important;
+}
+
+.dark-theme #sidebar .Select-menu-outer {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.dark-theme #sidebar .Select-option {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .Select-option:hover,
+.dark-theme #sidebar .Select-option.is-focused {
+    background-color: var(--bg-hover) !important;
+}
+
+.dark-theme #sidebar .Select-arrow {
+    border-color: var(--text-muted) transparent transparent !important;
+}
+
+.dark-theme #sidebar .Select-input > input {
+    color: var(--text-primary) !important;
+}
+
+/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
+.dark-theme #sidebar .dash-dropdown-trigger {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-value {
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-placeholder {
+    color: var(--text-muted) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-content {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-option {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-option:hover {
+    background-color: var(--bg-hover) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-trigger-icon {
+    color: var(--text-muted) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-search {
     color: var(--text-primary) !important;
 }
 
@@ -245,6 +309,7 @@ body {
    DROPDOWNS & INPUTS
    ============================================ */
 
+/* Dash 3 (Select-*) */
 .dark-theme .Select-control,
 .dark-theme .dash-dropdown .Select-control {
     background-color: var(--dropdown-bg) !important;
@@ -301,6 +366,50 @@ body {
 
 .dark-theme .Select--multi .Select-value-icon:hover {
     background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Dash 4 (dash-dropdown-*) — TODO: remove Select-* rules above once dash>=4.0.0 is required */
+.dark-theme .dash-dropdown-trigger {
+    background-color: var(--dropdown-bg) !important;
+    border-color: var(--input-border) !important;
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-placeholder,
+.dark-theme .dash-dropdown-value {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-content {
+    background-color: var(--dropdown-bg) !important;
+    border-color: var(--input-border) !important;
+}
+
+.dark-theme .dash-dropdown-option {
+    background-color: var(--dropdown-bg) !important;
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-option:hover {
+    background-color: var(--dropdown-hover) !important;
+}
+
+.dark-theme .dash-dropdown-option[aria-selected="true"] {
+    background-color: var(--accent-primary) !important;
+    color: #ffffff !important;
+}
+
+.dark-theme .dash-dropdown-search {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-trigger-icon {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-value-item {
+    background-color: var(--accent-primary) !important;
+    color: #ffffff !important;
     color: #ffffff !important;
 }
 

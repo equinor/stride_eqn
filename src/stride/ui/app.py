@@ -25,8 +25,12 @@ from stride.ui.plotting.utils import (
 from stride.ui.project_manager import add_recent_project, get_recent_projects
 from stride.ui.scenario import create_scenario_layout, register_scenario_callbacks
 from stride.ui.settings import create_settings_layout, register_settings_callbacks
-from stride.ui.settings.layout import get_temp_color_edits
-from stride.ui.tui import list_user_palettes
+from stride.ui.settings.layout import (
+    get_temp_color_edits,
+    get_temp_edits_for_category,
+    parse_temp_edit_key,
+)
+from stride.ui.tui import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
 app = Dash(
@@ -48,18 +52,28 @@ _loaded_projects: dict[str, tuple[Project, ColorManager, StridePlots, str]] = {}
 _current_project_path: str | None = None
 
 
-def create_fresh_color_manager(palette: ColorPalette, scenarios: list[str]) -> ColorManager:
+def create_fresh_color_manager(
+    palette: ColorPalette,
+    scenarios: list[str],
+    *,
+    ui_theme: str = "light",
+) -> ColorManager:
     """Create a fresh ColorManager instance, bypassing the singleton.
 
     Each project needs its own ColorManager to ensure consistent colors.
+    Applies *ui_theme* so that model-year colours are sampled from the
+    WCAG-safe iridescent range and sector/end-use colours use the
+    correct metric palette for the current theme.
     """
     from itertools import cycle
 
-    # Reset the palette's iterators to ensure consistent color assignment
+    # Reset the scenario iterator (set_ui_theme does not manage it)
     palette._scenario_iterator = cycle(palette.scenario_theme)
-    palette._model_year_iterator = cycle(palette.model_year_theme)
-    palette._sector_iterator = cycle(palette.metric_theme)
-    palette._end_use_iterator = cycle(palette.metric_theme)
+
+    # Ensure all colours match the requested UI theme.  This re-samples
+    # model-year colours from the WCAG-safe iridescent range and
+    # re-assigns sector/end-use colours, resetting their iterators.
+    palette.set_ui_theme(ui_theme)
 
     # Use object.__new__ to bypass ColorManager's singleton __new__ method
     color_manager = object.__new__(ColorManager)
@@ -69,7 +83,7 @@ def create_fresh_color_manager(palette: ColorPalette, scenarios: list[str]) -> C
     color_manager.initialize_colors(
         scenarios=scenarios,
         sectors=literal_to_list(Sectors),
-        end_uses=[],
+        end_uses=list(palette.end_uses.keys()),
     )
 
     return color_manager
@@ -107,11 +121,30 @@ def load_project(project_path: str) -> tuple[bool, str]:
         project = Project.load(path, read_only=True)
         data_handler = APIClient(project)  # Updates singleton
 
+        # Determine current UI theme from existing project plotter
+        ui_theme = "light"
+        if _current_project_path and _current_project_path in _loaded_projects:
+            _, _, existing_plotter, _ = _loaded_projects[_current_project_path]
+            if existing_plotter:
+                ui_theme = "dark" if "dark" in existing_plotter._template else "light"
+        current_template = (
+            DARK_PLOTLY_TEMPLATE if ui_theme == "dark" else DEFAULT_PLOTLY_TEMPLATE
+        )
+
         # Create a fresh color manager for this project
         palette = project.palette.copy()
-        color_manager = create_fresh_color_manager(palette, data_handler.scenarios)
+        try:
+            palette.merge_with_project_dimensions(
+                sectors=data_handler.get_unique_sectors(),
+                end_uses=data_handler.get_unique_end_uses(),
+            )
+        except Exception as e:
+            logger.warning(f"Could not populate sectors/end_uses: {e}")
+        color_manager = create_fresh_color_manager(
+            palette, data_handler.scenarios, ui_theme=ui_theme
+        )
 
-        plotter = StridePlots(color_manager, template=DEFAULT_PLOTLY_TEMPLATE)
+        plotter = StridePlots(color_manager, template=current_template)
 
         project_name = project.config.project_id
 
@@ -185,6 +218,17 @@ def create_app(  # noqa: C901
         current_palette_type = "project"
         current_palette_name = None
 
+    # Ensure palette has sectors and end_uses from the database.
+    # _auto_populate_palette only handles scenarios/model_years; sectors
+    # and end_uses are populated during project creation but may be
+    # missing from older projects or user palettes.
+    try:
+        sectors = data_handler.get_unique_sectors()
+        end_uses = data_handler.get_unique_end_uses()
+        palette.merge_with_project_dimensions(sectors=sectors, end_uses=end_uses)
+    except Exception as e:
+        logger.warning(f"Could not populate sectors/end_uses in palette: {e}")
+
     # Create fresh color manager for this project
     color_manager = create_fresh_color_manager(palette.copy(), data_handler.scenarios)
 
@@ -239,12 +283,14 @@ def create_app(  # noqa: C901
         user_palettes = []
 
     project_palette_name = data_handler.project.config.project_id
+    default_user_palette_name = get_default_user_palette()
     settings_layout = create_settings_layout(
         project_palette_name=project_palette_name,
         user_palettes=user_palettes,
         current_palette_type=current_palette_type,
         current_palette_name=current_palette_name,
         color_manager=color_manager,
+        default_user_palette=default_user_palette_name,
     )
 
     # Get current project display name
@@ -632,7 +678,6 @@ def create_app(  # noqa: C901
             )
         elif trigger_id == "back-to-dashboard-btn" or trigger_id == "home-link":
             # Return to home view - apply any temporary color edits and refresh charts
-            from stride.ui.settings.layout import get_temp_color_edits
 
             # Apply temporary color edits to the ColorManager
             temp_edits = get_temp_color_edits()
@@ -640,8 +685,9 @@ def create_app(  # noqa: C901
                 color_manager = get_current_color_manager()
                 if color_manager:
                     palette = color_manager.get_palette()
-                    for label, color in temp_edits.items():
-                        palette.update(label, color)
+                    for composite_key, color in temp_edits.items():
+                        cat_str, label = parse_temp_edit_key(composite_key)
+                        palette.update(label, color, category=cat_str)
                     logger.info(
                         f"Applied {len(temp_edits)} temporary color edits when returning to home"
                     )
@@ -723,15 +769,25 @@ def create_app(  # noqa: C901
             # Create a copy of the palette to avoid modifying the original
             palette_copy = palette.copy()
 
-            # Apply theme-aware colors based on current UI theme
+            # Determine current UI theme
             ui_mode = "dark" if "dark" in current_template else "light"
-            palette_copy.set_ui_theme(ui_mode)
 
             # Get current data handler (singleton)
             data_handler = APIClient(cached_project)
 
+            # Ensure sectors/end_uses are current
+            try:
+                palette_copy.merge_with_project_dimensions(
+                    sectors=data_handler.get_unique_sectors(),
+                    end_uses=data_handler.get_unique_end_uses(),
+                )
+            except Exception as e:
+                logger.warning(f"Could not populate sectors/end_uses: {e}")
+
             # Create fresh color manager with new palette
-            color_manager = create_fresh_color_manager(palette_copy, data_handler.scenarios)
+            color_manager = create_fresh_color_manager(
+                palette_copy, data_handler.scenarios, ui_theme=ui_mode,
+            )
 
             plotter = StridePlots(color_manager, template=current_template)
 
@@ -800,8 +856,8 @@ def create_app(  # noqa: C901
         if color_manager is None:
             raise PreventUpdate
 
-        # Get temporary color edits to apply to CSS
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         return [
             html.Script(
@@ -813,7 +869,7 @@ def create_app(  # noqa: C901
                     }}
                     var style = document.createElement('style');
                     style.id = 'scenario-dynamic-css';
-                    style.textContent = `{color_manager.generate_scenario_css(temp_edits)}`;
+                    style.textContent = `{color_manager.generate_scenario_css(scenario_edits)}`;
                     document.head.appendChild(style);
                 }})();
                 """
@@ -1440,12 +1496,23 @@ def _on_palette_change_no_project(
 
         palette_copy = palette.copy()
 
-        # Apply theme-aware colors based on current UI theme
+        # Determine current UI theme
         ui_mode = "dark" if "dark" in current_template else "light"
-        palette_copy.set_ui_theme(ui_mode)
 
         data_handler = APIClient(cached_project)
-        new_color_manager = create_fresh_color_manager(palette_copy, data_handler.scenarios)
+
+        # Ensure sectors/end_uses are current
+        try:
+            palette_copy.merge_with_project_dimensions(
+                sectors=data_handler.get_unique_sectors(),
+                end_uses=data_handler.get_unique_end_uses(),
+            )
+        except Exception as e:
+            logger.warning(f"Could not populate sectors/end_uses: {e}")
+
+        new_color_manager = create_fresh_color_manager(
+            palette_copy, data_handler.scenarios, ui_theme=ui_mode,
+        )
         new_plotter = StridePlots(new_color_manager, template=current_template)
 
         _loaded_projects[_current_project_path] = (
@@ -1746,6 +1813,7 @@ def _build_successful_load_response(
         current_palette_type="project",
         current_palette_name=None,
         color_manager=color_manager,
+        default_user_palette=get_default_user_palette(),
     )
 
     # Generate scenario CSS
@@ -1879,8 +1947,9 @@ def _toggle_views_impl(
             color_manager = get_current_color_manager()
             if color_manager:
                 palette = color_manager.get_palette()
-                for label, color in temp_edits.items():
-                    palette.update(label, color)
+                for composite_key, color in temp_edits.items():
+                    cat_str, label = parse_temp_edit_key(composite_key)
+                    palette.update(label, color, category=cat_str)
                 logger.info(
                     f"Applied {len(temp_edits)} temporary color edits when returning to home"
                 )
@@ -1949,5 +2018,5 @@ def _register_scenario_css_callback(
         if color_manager is None:
             raise PreventUpdate
 
-        temp_edits = get_temp_color_edits()
-        return _generate_scenario_css_script(color_manager, temp_edits)
+        scenario_edits = get_temp_edits_for_category("scenarios")
+        return _generate_scenario_css_script(color_manager, scenario_edits)
