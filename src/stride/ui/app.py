@@ -20,7 +20,7 @@ from stride.ui.project_manager import add_recent_project, get_recent_projects
 from stride.ui.scenario import create_scenario_layout, register_scenario_callbacks
 from stride.ui.settings import create_settings_layout, register_settings_callbacks
 from stride.ui.settings.layout import get_temp_color_edits
-from stride.ui.tui import list_user_palettes
+from stride.ui.tui import get_max_cached_projects as _get_config_max_cached, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
 app = Dash(
@@ -44,12 +44,55 @@ _current_project_path: str | None = None
 # Maximum number of projects to keep open simultaneously.
 # Each open project holds a DuckDB connection with file descriptors;
 # on BlobFuse2 FUSE mounts too many concurrent connections cause [Errno 5].
-MAX_CACHED_PROJECTS = 3
+_DEFAULT_MAX_CACHED_PROJECTS = 3
+_max_cached_projects_override: int | None = None
+
+
+def get_max_cached_projects() -> int:
+    """Resolve the effective max cached projects value.
+
+    Priority: CLI override > STRIDE_MAX_CACHED_PROJECTS env var > config file > default (3).
+    Result is clamped to [1, 10].
+    """
+    import os
+
+    if _max_cached_projects_override is not None:
+        return max(1, min(10, _max_cached_projects_override))
+
+    env_val = os.environ.get("STRIDE_MAX_CACHED_PROJECTS")
+    if env_val is not None:
+        try:
+            return max(1, min(10, int(env_val)))
+        except ValueError:
+            pass
+
+    config_val = _get_config_max_cached()
+    if config_val is not None:
+        return max(1, min(10, config_val))
+
+    return _DEFAULT_MAX_CACHED_PROJECTS
+
+
+def set_max_cached_projects_override(n: int | None) -> None:
+    """Set the CLI override for max cached projects.
+
+    Parameters
+    ----------
+    n : int | None
+        Override value, or None to clear
+    """
+    global _max_cached_projects_override
+    _max_cached_projects_override = n
+
+
+# Keep module-level attribute for backwards compatibility with tests
+MAX_CACHED_PROJECTS = _DEFAULT_MAX_CACHED_PROJECTS
 
 
 def _evict_oldest_project() -> None:
     """Evict the least-recently-used project from the cache if at capacity."""
-    while len(_loaded_projects) >= MAX_CACHED_PROJECTS:
+    limit = get_max_cached_projects()
+    while len(_loaded_projects) >= limit:
         # Dict is insertion-ordered; first key is the oldest (LRU)
         oldest_path = next(iter(_loaded_projects))
         old_project, _, _, old_name = _loaded_projects.pop(oldest_path)

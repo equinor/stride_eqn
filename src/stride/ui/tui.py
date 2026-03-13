@@ -1209,3 +1209,32 @@ def get_default_user_palette() -> str | None:
     """
     config = load_stride_config()
     return config.get("default_user_palette")
+
+
+def get_max_cached_projects() -> int | None:
+    """Get the max cached projects setting from config.
+
+    Returns
+    -------
+    int | None
+        Configured max cached projects, or None if not set
+    """
+    config = load_stride_config()
+    value = config.get("max_cached_projects")
+    if value is not None:
+        return int(value)
+    return None
+
+
+def set_max_cached_projects(n: int) -> None:
+    """Set the max cached projects in the config file.
+
+    Parameters
+    ----------
+    n : int
+        Number of max cached projects (will be clamped to [1, 10])
+    """
+    n = max(1, min(10, n))
+    config = load_stride_config()
+    config["max_cached_projects"] = n
+    save_stride_config(config)

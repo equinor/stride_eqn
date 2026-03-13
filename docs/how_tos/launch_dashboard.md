@@ -49,3 +49,35 @@ Launch the dashboard without a project:
 ```
 
 Projects can be loaded and color palettes can be managed from the sidebar.
+
+## Configure Max Cached Projects
+
+By default, STRIDE keeps up to 3 projects open simultaneously. Each open project holds a DuckDB connection,
+and on BlobFuse2 FUSE mounts too many concurrent connections can cause errors.
+
+You can configure this limit via three methods (highest priority first):
+
+### CLI Flag
+
+```{eval-rst}
+
+.. code-block:: console
+
+   $ stride view my_project --max-cached-projects 5
+```
+
+### Environment Variable
+
+```{eval-rst}
+
+.. code-block:: console
+
+   $ STRIDE_MAX_CACHED_PROJECTS=5 stride view my_project
+```
+
+### Settings UI
+
+Open the sidebar, click **Settings**, and adjust the **Max Cached Projects** value in the General section.
+This persists the setting to `~/.stride/config.json`.
+
+Valid range is 1–10. The default is 3.

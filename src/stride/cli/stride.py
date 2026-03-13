@@ -636,6 +636,12 @@ def calculated_tables() -> None:
     default=False,
     help="Disable automatic loading of default user palette",
 )
+@click.option(
+    "--max-cached-projects",
+    type=click.IntRange(1, 10),
+    default=None,
+    help="Maximum number of projects to keep open simultaneously (1-10, default: 3)",
+)
 @click.pass_context
 def view(
     ctx: click.Context,
@@ -645,6 +651,7 @@ def view(
     debug: bool,
     user_palette: str | None,
     no_default_palette: bool,
+    max_cached_projects: int | None,
 ) -> None:
     """Start the STRIDE dashboard UI.
 
@@ -657,8 +664,13 @@ def view(
     a different user palette to use.
     """
     from stride.api import APIClient
-    from stride.ui.app import create_app, create_app_no_project
+    from stride.ui.app import create_app, create_app_no_project, set_max_cached_projects_override
     from stride.ui.tui import get_default_user_palette, load_user_palette
+
+    # Apply max cached projects override if provided via CLI
+    if max_cached_projects is not None:
+        set_max_cached_projects_override(max_cached_projects)
+        logger.info(f"Max cached projects set to {max_cached_projects} via CLI")
 
     # Determine which palette to use
     palette_override = None

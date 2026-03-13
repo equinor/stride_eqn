@@ -1,5 +1,7 @@
 """Settings page layout for STRIDE dashboard."""
 
+import os
+
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
@@ -59,6 +61,30 @@ def create_settings_layout(
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
 
+    # Resolve max cached projects override state for the General section
+    from stride.ui.app import (
+        _max_cached_projects_override,
+        get_max_cached_projects,
+    )
+
+    max_cached_value = get_max_cached_projects()
+    override_source = None
+    if _max_cached_projects_override is not None:
+        override_source = f"CLI flag (--max-cached-projects {_max_cached_projects_override})"
+    elif os.environ.get("STRIDE_MAX_CACHED_PROJECTS") is not None:
+        override_source = f"Environment variable (STRIDE_MAX_CACHED_PROJECTS={os.environ['STRIDE_MAX_CACHED_PROJECTS']})"
+    is_overridden = override_source is not None
+
+    override_badge = []
+    if is_overridden:
+        override_badge = [
+            dbc.Badge(
+                f"Overridden by: {override_source}",
+                color="warning",
+                className="ms-2 mb-2",
+            ),
+        ]
+
     return html.Div(
         [
             dbc.Container(
@@ -73,6 +99,64 @@ def create_settings_layout(
                                 ]
                             )
                         ]
+                    ),
+                    # General Settings Section
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.H4("General", className="mb-3"),
+                                    dbc.Card(
+                                        [
+                                            dbc.CardBody(
+                                                [
+                                                    html.Label(
+                                                        "Max Cached Projects:",
+                                                        className="form-label fw-bold",
+                                                    ),
+                                                    *override_badge,
+                                                    html.Div(
+                                                        [
+                                                            dcc.Input(
+                                                                id="max-cached-projects-input",
+                                                                type="number",
+                                                                step=1,
+                                                                value=max_cached_value,
+                                                                className="form-control form-control-sm",
+                                                                style={"width": "100px", "display": "inline-block", "height": "31px", "fontSize": "0.85rem"},
+                                                                readOnly=is_overridden,
+                                                                disabled=is_overridden,
+                                                            ),
+                                                            dbc.Button(
+                                                                "Save",
+                                                                id="save-max-cached-btn",
+                                                                color="primary",
+                                                                size="sm",
+                                                                className="ms-2",
+                                                                disabled=is_overridden,
+                                                            ),
+                                                        ],
+                                                        className="d-flex align-items-center mb-2",
+                                                    ),
+                                                    html.Small(
+                                                        "Number of projects to keep open simultaneously. "
+                                                        "Each open project holds a DuckDB connection; "
+                                                        "too many concurrent connections may cause errors on FUSE mounts.",
+                                                        className="text-muted",
+                                                    ),
+                                                    html.Div(
+                                                        id="max-cached-projects-status",
+                                                        className="mt-2",
+                                                    ),
+                                                ]
+                                            )
+                                        ],
+                                        className="mb-4",
+                                    ),
+                                ]
+                            )
+                        ],
+                        className="mb-4",
                     ),
                     # Palette Selection Section
                     dbc.Row(

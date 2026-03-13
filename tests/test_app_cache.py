@@ -3,7 +3,7 @@ Tests for the project cache and LRU eviction logic in app.py,
 and the refresh-projects dropdown logic.
 
 Covers code added in the `refresh_recent_projects` branch:
-- MAX_CACHED_PROJECTS constant
+- get_max_cached_projects() configurable limit
 - _evict_oldest_project()
 - LRU reordering when switching to a cached project via load_project()
 - refresh_dropdown_options (no-project variant via _register_refresh_projects_callback)
@@ -11,6 +11,7 @@ Covers code added in the `refresh_recent_projects` branch:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -44,9 +45,81 @@ def _reset_global_state() -> None:
     """Ensure module-level cache state is clean before *and* after each test."""
     app_module._loaded_projects.clear()
     app_module._current_project_path = None
+    app_module._max_cached_projects_override = None
     yield
     app_module._loaded_projects.clear()
     app_module._current_project_path = None
+    app_module._max_cached_projects_override = None
+
+
+# ===================================================================
+# Tests for get_max_cached_projects priority chain
+# ===================================================================
+
+
+class TestGetMaxCachedProjects:
+    """Tests for the get_max_cached_projects resolution function."""
+
+    def test_default_value(self) -> None:
+        """Should return 3 when no override, no env var, and no config."""
+        with patch.object(app_module, "_get_config_max_cached", return_value=None):
+            assert app_module.get_max_cached_projects() == 3
+
+    def test_config_value(self) -> None:
+        """Config file value should be used when no override or env var."""
+        with patch.object(app_module, "_get_config_max_cached", return_value=5):
+            assert app_module.get_max_cached_projects() == 5
+
+    def test_env_var_overrides_config(self) -> None:
+        """Environment variable should override config file value."""
+        with (
+            patch.object(app_module, "_get_config_max_cached", return_value=5),
+            patch.dict(os.environ, {"STRIDE_MAX_CACHED_PROJECTS": "4"}),
+        ):
+            assert app_module.get_max_cached_projects() == 4
+
+    def test_cli_override_overrides_env_and_config(self) -> None:
+        """CLI override should take highest priority."""
+        app_module._max_cached_projects_override = 2
+        with (
+            patch.object(app_module, "_get_config_max_cached", return_value=5),
+            patch.dict(os.environ, {"STRIDE_MAX_CACHED_PROJECTS": "4"}),
+        ):
+            assert app_module.get_max_cached_projects() == 2
+
+    def test_clamped_to_minimum(self) -> None:
+        """Values below 1 should be clamped to 1."""
+        app_module._max_cached_projects_override = 0
+        assert app_module.get_max_cached_projects() == 1
+
+    def test_clamped_to_maximum(self) -> None:
+        """Values above 10 should be clamped to 10."""
+        app_module._max_cached_projects_override = 99
+        assert app_module.get_max_cached_projects() == 10
+
+    def test_env_var_clamped(self) -> None:
+        """Env var out of range should be clamped."""
+        with (
+            patch.object(app_module, "_get_config_max_cached", return_value=None),
+            patch.dict(os.environ, {"STRIDE_MAX_CACHED_PROJECTS": "0"}),
+        ):
+            assert app_module.get_max_cached_projects() == 1
+
+    def test_env_var_invalid_ignored(self) -> None:
+        """Non-numeric env var should be ignored, falling through to config/default."""
+        with (
+            patch.object(app_module, "_get_config_max_cached", return_value=None),
+            patch.dict(os.environ, {"STRIDE_MAX_CACHED_PROJECTS": "abc"}),
+        ):
+            assert app_module.get_max_cached_projects() == 3
+
+    def test_set_and_clear_override(self) -> None:
+        """set_max_cached_projects_override should set and clear correctly."""
+        app_module.set_max_cached_projects_override(7)
+        assert app_module._max_cached_projects_override == 7
+
+        app_module.set_max_cached_projects_override(None)
+        assert app_module._max_cached_projects_override is None
 
 
 # ===================================================================
@@ -58,10 +131,10 @@ class TestEvictOldestProject:
     """Tests for the _evict_oldest_project helper."""
 
     def test_no_eviction_when_below_capacity(self) -> None:
-        """No project should be evicted when cache is below MAX_CACHED_PROJECTS."""
+        """No project should be evicted when cache is below limit."""
         app_module._loaded_projects["/a"] = _make_cache_entry("A")
         app_module._loaded_projects["/b"] = _make_cache_entry("B")
-        assert len(app_module._loaded_projects) < app_module.MAX_CACHED_PROJECTS
+        app_module._max_cached_projects_override = 3
 
         app_module._evict_oldest_project()
 
@@ -71,19 +144,22 @@ class TestEvictOldestProject:
 
     def test_eviction_when_at_capacity(self) -> None:
         """The oldest (first-inserted) project should be evicted when at capacity."""
-        for i in range(app_module.MAX_CACHED_PROJECTS):
+        app_module._max_cached_projects_override = 3
+        limit = app_module.get_max_cached_projects()
+        for i in range(limit):
             app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
 
         oldest_project = app_module._loaded_projects["/0"][0]
 
         app_module._evict_oldest_project()
 
-        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+        assert len(app_module._loaded_projects) == limit - 1
         assert "/0" not in app_module._loaded_projects
         oldest_project.close.assert_called_once()
 
     def test_eviction_removes_oldest_preserves_newest(self) -> None:
         """Eviction should remove the first key (LRU) and keep the rest."""
+        app_module._max_cached_projects_override = 3
         app_module._loaded_projects["/old"] = _make_cache_entry("Old")
         app_module._loaded_projects["/mid"] = _make_cache_entry("Mid")
         app_module._loaded_projects["/new"] = _make_cache_entry("New")
@@ -101,7 +177,9 @@ class TestEvictOldestProject:
 
     def test_eviction_handles_close_exception(self) -> None:
         """If Project.close() raises, eviction should still proceed (logged as warning)."""
-        for i in range(app_module.MAX_CACHED_PROJECTS):
+        app_module._max_cached_projects_override = 3
+        limit = app_module.get_max_cached_projects()
+        for i in range(limit):
             app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
 
         # Make close() raise for the oldest project
@@ -111,17 +189,33 @@ class TestEvictOldestProject:
         app_module._evict_oldest_project()
 
         assert "/0" not in app_module._loaded_projects
-        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+        assert len(app_module._loaded_projects) == limit - 1
 
     def test_eviction_over_capacity(self) -> None:
-        """If the cache somehow exceeds capacity, evict until below MAX_CACHED_PROJECTS."""
-        # Manually stuff more than MAX_CACHED_PROJECTS entries
-        for i in range(app_module.MAX_CACHED_PROJECTS + 2):
+        """If the cache somehow exceeds capacity, evict until below limit."""
+        app_module._max_cached_projects_override = 3
+        limit = app_module.get_max_cached_projects()
+        # Manually stuff more than limit entries
+        for i in range(limit + 2):
             app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
 
         app_module._evict_oldest_project()
 
-        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+        assert len(app_module._loaded_projects) == limit - 1
+
+    def test_eviction_respects_dynamic_limit(self) -> None:
+        """Lowering the limit should cause eviction of excess projects."""
+        # Start with 5 projects and a limit of 5
+        app_module._max_cached_projects_override = 5
+        for i in range(5):
+            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
+
+        # Lower the limit to 2
+        app_module._max_cached_projects_override = 2
+        app_module._evict_oldest_project()
+
+        # Should have evicted down to 1 (limit - 1)
+        assert len(app_module._loaded_projects) == 1
 
 
 # ===================================================================
@@ -159,7 +253,9 @@ class TestLoadProjectLRU:
 
     def test_load_new_project_triggers_eviction(self) -> None:
         """Loading a new project when at capacity should evict the oldest first."""
-        for i in range(app_module.MAX_CACHED_PROJECTS):
+        app_module._max_cached_projects_override = 3
+        limit = app_module.get_max_cached_projects()
+        for i in range(limit):
             app_module._loaded_projects[f"/proj{i}"] = _make_cache_entry(f"P{i}")
 
         oldest_mock = app_module._loaded_projects["/proj0"][0]
@@ -379,3 +475,63 @@ class TestRefreshDropdownLogic:
         # Current + 3 recent
         assert len(result) == 4
         assert result[0]["label"] == "Current"
+
+
+# ===================================================================
+# Tests for config round-trip (tui.py helpers)
+# ===================================================================
+
+
+class TestConfigMaxCachedProjects:
+    """Tests for get_max_cached_projects / set_max_cached_projects in tui.py."""
+
+    def test_round_trip(self, tmp_path: Path) -> None:
+        """set_max_cached_projects(n) -> get_max_cached_projects() should return n."""
+        from stride.ui.tui import (
+            get_max_cached_projects as tui_get,
+            set_max_cached_projects as tui_set,
+        )
+
+        config_file = tmp_path / "config.json"
+        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+            # Initially no config file
+            assert tui_get() is None
+
+            # Set a value
+            tui_set(5)
+            assert tui_get() == 5
+
+            # Update the value
+            tui_set(8)
+            assert tui_get() == 8
+
+    def test_set_clamps_to_range(self, tmp_path: Path) -> None:
+        """set_max_cached_projects should clamp values to [1, 10]."""
+        from stride.ui.tui import (
+            get_max_cached_projects as tui_get,
+            set_max_cached_projects as tui_set,
+        )
+
+        config_file = tmp_path / "config.json"
+        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+            tui_set(0)
+            assert tui_get() == 1
+
+            tui_set(99)
+            assert tui_get() == 10
+
+    def test_set_preserves_other_config(self, tmp_path: Path) -> None:
+        """set_max_cached_projects should not clobber other config keys."""
+        import json
+
+        from stride.ui.tui import set_max_cached_projects as tui_set
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"default_user_palette": "my_palette"}))
+
+        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+            tui_set(7)
+
+        saved = json.loads(config_file.read_text())
+        assert saved["max_cached_projects"] == 7
+        assert saved["default_user_palette"] == "my_palette"
