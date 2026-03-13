@@ -12,6 +12,7 @@ Covers code added in the `refresh_recent_projects` branch:
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -41,7 +42,7 @@ def _make_cache_entry(
 
 
 @pytest.fixture(autouse=True)
-def _reset_global_state() -> None:
+def _reset_global_state() -> Generator[None, None, None]:
     """Ensure module-level cache state is clean before *and* after each test."""
     app_module._loaded_projects.clear()
     app_module._current_project_path = None
@@ -146,10 +147,9 @@ class TestEvictOldestProject:
         """The oldest (first-inserted) project should be evicted when at capacity."""
         app_module._max_cached_projects_override = 3
         limit = app_module.get_max_cached_projects()
-        for i in range(limit):
-            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
-
-        oldest_project = app_module._loaded_projects["/0"][0]
+        entries = {f"/{i}": _make_cache_entry(f"P{i}") for i in range(limit)}
+        oldest_project = entries["/0"][0]
+        app_module._loaded_projects.update(entries)
 
         app_module._evict_oldest_project()
 
@@ -179,11 +179,10 @@ class TestEvictOldestProject:
         """If Project.close() raises, eviction should still proceed (logged as warning)."""
         app_module._max_cached_projects_override = 3
         limit = app_module.get_max_cached_projects()
-        for i in range(limit):
-            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
-
+        entries = {f"/{i}": _make_cache_entry(f"P{i}") for i in range(limit)}
         # Make close() raise for the oldest project
-        app_module._loaded_projects["/0"][0].close.side_effect = RuntimeError("oops")
+        entries["/0"][0].close.side_effect = RuntimeError("oops")
+        app_module._loaded_projects.update(entries)
 
         # Should not raise
         app_module._evict_oldest_project()
@@ -255,10 +254,11 @@ class TestLoadProjectLRU:
         """Loading a new project when at capacity should evict the oldest first."""
         app_module._max_cached_projects_override = 3
         limit = app_module.get_max_cached_projects()
-        for i in range(limit):
+        entry = _make_cache_entry("P0")
+        oldest_mock = entry[0]
+        app_module._loaded_projects["/proj0"] = entry
+        for i in range(1, limit):
             app_module._loaded_projects[f"/proj{i}"] = _make_cache_entry(f"P{i}")
-
-        oldest_mock = app_module._loaded_projects["/proj0"][0]
 
         mock_project = _make_mock_project("NewProj")
         mock_project.palette = MagicMock()
@@ -287,7 +287,7 @@ class TestLoadProjectLRU:
 
     def test_load_project_failure_returns_false(self) -> None:
         """A failed load should return (False, error_message)."""
-        with patch.object(app_module.Path, "resolve", side_effect=RuntimeError("bad")):
+        with patch.object(Path, "resolve", side_effect=RuntimeError("bad")):
             success, msg = app_module.load_project("/does/not/exist")
 
         assert success is False
