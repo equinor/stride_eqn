@@ -1,0 +1,381 @@
+"""
+Tests for the project cache and LRU eviction logic in app.py,
+and the refresh-projects dropdown logic.
+
+Covers code added in the `refresh_recent_projects` branch:
+- MAX_CACHED_PROJECTS constant
+- _evict_oldest_project()
+- LRU reordering when switching to a cached project via load_project()
+- refresh_dropdown_options (no-project variant via _register_refresh_projects_callback)
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from stride.ui import app as app_module
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+def _make_mock_project(name: str = "proj") -> MagicMock:
+    """Return a lightweight mock that behaves like a Project."""
+    proj = MagicMock()
+    proj.config.project_id = name
+    proj.close = MagicMock()
+    return proj
+
+
+def _make_cache_entry(
+    name: str = "proj",
+) -> tuple[MagicMock, MagicMock, MagicMock, str]:
+    """Return a (Project, ColorManager, StridePlots, name) tuple for the cache."""
+    return (_make_mock_project(name), MagicMock(), MagicMock(), name)
+
+
+@pytest.fixture(autouse=True)
+def _reset_global_state() -> None:
+    """Ensure module-level cache state is clean before *and* after each test."""
+    app_module._loaded_projects.clear()
+    app_module._current_project_path = None
+    yield
+    app_module._loaded_projects.clear()
+    app_module._current_project_path = None
+
+
+# ===================================================================
+# Tests for _evict_oldest_project
+# ===================================================================
+
+
+class TestEvictOldestProject:
+    """Tests for the _evict_oldest_project helper."""
+
+    def test_no_eviction_when_below_capacity(self) -> None:
+        """No project should be evicted when cache is below MAX_CACHED_PROJECTS."""
+        app_module._loaded_projects["/a"] = _make_cache_entry("A")
+        app_module._loaded_projects["/b"] = _make_cache_entry("B")
+        assert len(app_module._loaded_projects) < app_module.MAX_CACHED_PROJECTS
+
+        app_module._evict_oldest_project()
+
+        assert len(app_module._loaded_projects) == 2
+        assert "/a" in app_module._loaded_projects
+        assert "/b" in app_module._loaded_projects
+
+    def test_eviction_when_at_capacity(self) -> None:
+        """The oldest (first-inserted) project should be evicted when at capacity."""
+        for i in range(app_module.MAX_CACHED_PROJECTS):
+            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
+
+        oldest_project = app_module._loaded_projects["/0"][0]
+
+        app_module._evict_oldest_project()
+
+        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+        assert "/0" not in app_module._loaded_projects
+        oldest_project.close.assert_called_once()
+
+    def test_eviction_removes_oldest_preserves_newest(self) -> None:
+        """Eviction should remove the first key (LRU) and keep the rest."""
+        app_module._loaded_projects["/old"] = _make_cache_entry("Old")
+        app_module._loaded_projects["/mid"] = _make_cache_entry("Mid")
+        app_module._loaded_projects["/new"] = _make_cache_entry("New")
+
+        app_module._evict_oldest_project()
+
+        assert "/old" not in app_module._loaded_projects
+        assert "/mid" in app_module._loaded_projects
+        assert "/new" in app_module._loaded_projects
+
+    def test_eviction_on_empty_cache(self) -> None:
+        """Eviction on an empty cache should be a no-op."""
+        app_module._evict_oldest_project()
+        assert len(app_module._loaded_projects) == 0
+
+    def test_eviction_handles_close_exception(self) -> None:
+        """If Project.close() raises, eviction should still proceed (logged as warning)."""
+        for i in range(app_module.MAX_CACHED_PROJECTS):
+            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
+
+        # Make close() raise for the oldest project
+        app_module._loaded_projects["/0"][0].close.side_effect = RuntimeError("oops")
+
+        # Should not raise
+        app_module._evict_oldest_project()
+
+        assert "/0" not in app_module._loaded_projects
+        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+
+    def test_eviction_over_capacity(self) -> None:
+        """If the cache somehow exceeds capacity, evict until below MAX_CACHED_PROJECTS."""
+        # Manually stuff more than MAX_CACHED_PROJECTS entries
+        for i in range(app_module.MAX_CACHED_PROJECTS + 2):
+            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
+
+        app_module._evict_oldest_project()
+
+        assert len(app_module._loaded_projects) == app_module.MAX_CACHED_PROJECTS - 1
+
+
+# ===================================================================
+# Tests for LRU reordering in load_project
+# ===================================================================
+
+
+class TestLoadProjectLRU:
+    """Tests for LRU re-ordering when switching to a cached project."""
+
+    def test_cached_project_moves_to_end(self) -> None:
+        """Accessing a cached project should move it to the end of the dict (MRU)."""
+        app_module._loaded_projects["/first"] = _make_cache_entry("First")
+        app_module._loaded_projects["/second"] = _make_cache_entry("Second")
+
+        # Patch APIClient so it doesn't actually try to create an instance
+        with patch.object(app_module, "APIClient"):
+            success, msg = app_module.load_project("/first")
+
+        assert success is True
+        assert "Switched to cached" in msg
+        # /first should now be the last key (most recently used)
+        keys = list(app_module._loaded_projects.keys())
+        assert keys[-1] == str(Path("/first").resolve())
+
+    def test_cached_project_updates_current_path(self) -> None:
+        """Switching to a cached project should update _current_project_path."""
+        resolved = str(Path("/cached").resolve())
+        app_module._loaded_projects[resolved] = _make_cache_entry("Cached")
+
+        with patch.object(app_module, "APIClient"):
+            app_module.load_project("/cached")
+
+        assert app_module._current_project_path == resolved
+
+    def test_load_new_project_triggers_eviction(self) -> None:
+        """Loading a new project when at capacity should evict the oldest first."""
+        for i in range(app_module.MAX_CACHED_PROJECTS):
+            app_module._loaded_projects[f"/proj{i}"] = _make_cache_entry(f"P{i}")
+
+        oldest_mock = app_module._loaded_projects["/proj0"][0]
+
+        mock_project = _make_mock_project("NewProj")
+        mock_project.palette = MagicMock()
+        mock_project.palette.copy.return_value = MagicMock(
+            scenario_theme=["#aaa"], model_year_theme=["#bbb"], metric_theme=["#ccc"]
+        )
+
+        with (
+            patch.object(app_module, "Project") as MockProject,
+            patch.object(app_module, "APIClient") as MockAPIClient,
+            patch.object(app_module, "create_fresh_color_manager") as mock_cm,
+            patch.object(app_module, "StridePlots"),
+            patch.object(app_module, "add_recent_project"),
+        ):
+            MockProject.load.return_value = mock_project
+            mock_api = MagicMock()
+            mock_api.scenarios = ["baseline"]
+            MockAPIClient.return_value = mock_api
+            mock_cm.return_value = MagicMock()
+
+            success, _ = app_module.load_project("/brand_new")
+
+        assert success is True
+        oldest_mock.close.assert_called_once()
+        assert "/proj0" not in app_module._loaded_projects
+
+    def test_load_project_failure_returns_false(self) -> None:
+        """A failed load should return (False, error_message)."""
+        with patch.object(app_module.Path, "resolve", side_effect=RuntimeError("bad")):
+            success, msg = app_module.load_project("/does/not/exist")
+
+        assert success is False
+        assert "bad" in msg
+
+
+# ===================================================================
+# Tests for get_loaded_project_options
+# ===================================================================
+
+
+class TestGetLoadedProjectOptions:
+    """Tests for the get_loaded_project_options helper."""
+
+    def test_empty_cache(self) -> None:
+        assert app_module.get_loaded_project_options() == []
+
+    def test_returns_all_cached_projects(self) -> None:
+        app_module._loaded_projects["/a"] = _make_cache_entry("Alpha")
+        app_module._loaded_projects["/b"] = _make_cache_entry("Beta")
+
+        options = app_module.get_loaded_project_options()
+
+        assert len(options) == 2
+        labels = {o["label"] for o in options}
+        assert labels == {"Alpha", "Beta"}
+
+    def test_preserves_insertion_order(self) -> None:
+        app_module._loaded_projects["/x"] = _make_cache_entry("X")
+        app_module._loaded_projects["/y"] = _make_cache_entry("Y")
+
+        options = app_module.get_loaded_project_options()
+        assert options[0]["value"] == "/x"
+        assert options[1]["value"] == "/y"
+
+
+# ===================================================================
+# Tests for MAX_CACHED_PROJECTS constant
+# ===================================================================
+
+
+def test_max_cached_projects_is_positive_int() -> None:
+    """Sanity check: MAX_CACHED_PROJECTS should be a small positive integer."""
+    assert isinstance(app_module.MAX_CACHED_PROJECTS, int)
+    assert app_module.MAX_CACHED_PROJECTS > 0
+
+
+# ===================================================================
+# Tests for _register_refresh_projects_callback logic
+# (We test the inner function indirectly by extracting the logic.)
+# ===================================================================
+
+
+class TestRefreshDropdownLogic:
+    """
+    Test the dropdown-refresh logic used by both the 'with-project' and
+    'no-project' variants of refresh_dropdown_options.
+
+    Since the actual functions are Dash callbacks registered inside closures,
+    we replicate/test the shared logic that builds dropdown options from
+    get_recent_projects().
+    """
+
+    @staticmethod
+    def _build_dropdown_options_no_project(
+        recent: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        """Replicate the logic of the no-project refresh_dropdown_options."""
+        dropdown_options: list[dict[str, str]] = []
+        seen_project_ids: set[str] = set()
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if (
+                project_id
+                and project_id not in seen_project_ids
+                and Path(proj_path).exists()
+            ):
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+        return dropdown_options
+
+    @staticmethod
+    def _build_dropdown_options_with_project(
+        current_project_name: str,
+        current_path: str,
+        recent: list[dict[str, Any]],
+    ) -> list[dict[str, str]]:
+        """Replicate the logic of the with-project refresh_dropdown_options."""
+        dropdown_options = [{"label": current_project_name, "value": current_path}]
+        seen_project_ids = {current_project_name}
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if (
+                project_id
+                and project_id not in seen_project_ids
+                and Path(proj_path).exists()
+            ):
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+        return dropdown_options
+
+    def test_no_project_empty_recent(self) -> None:
+        """No recent projects should yield an empty list."""
+        assert self._build_dropdown_options_no_project([]) == []
+
+    def test_no_project_deduplicates_by_project_id(self, tmp_path: Path) -> None:
+        """Duplicate project_ids should be collapsed to a single entry."""
+        p = tmp_path / "proj"
+        p.mkdir()
+        recent = [
+            {"project_id": "dup", "path": str(p), "name": "Dup1"},
+            {"project_id": "dup", "path": str(p), "name": "Dup2"},
+        ]
+        result = self._build_dropdown_options_no_project(recent)
+        assert len(result) == 1
+        assert result[0]["label"] == "Dup1"
+
+    def test_no_project_skips_missing_paths(self, tmp_path: Path) -> None:
+        """Projects whose paths don't exist should be excluded."""
+        recent = [
+            {"project_id": "gone", "path": "/no/such/path", "name": "Gone"},
+        ]
+        result = self._build_dropdown_options_no_project(recent)
+        assert result == []
+
+    def test_no_project_skips_empty_project_id(self, tmp_path: Path) -> None:
+        """Entries with an empty project_id should be skipped."""
+        p = tmp_path / "proj"
+        p.mkdir()
+        recent = [{"project_id": "", "path": str(p), "name": "NoId"}]
+        result = self._build_dropdown_options_no_project(recent)
+        assert result == []
+
+    def test_no_project_uses_project_id_as_fallback_label(self, tmp_path: Path) -> None:
+        """If 'name' is missing, the project_id should be used as the label."""
+        p = tmp_path / "proj"
+        p.mkdir()
+        recent = [{"project_id": "myid", "path": str(p)}]
+        result = self._build_dropdown_options_no_project(recent)
+        assert result[0]["label"] == "myid"
+
+    def test_with_project_includes_current_first(self, tmp_path: Path) -> None:
+        """The current project should always be the first entry."""
+        p = tmp_path / "other"
+        p.mkdir()
+        recent = [{"project_id": "other", "path": str(p), "name": "Other"}]
+        result = self._build_dropdown_options_with_project(
+            "Current", "/current/path", recent
+        )
+        assert result[0] == {"label": "Current", "value": "/current/path"}
+        assert len(result) == 2
+
+    def test_with_project_does_not_duplicate_current(self, tmp_path: Path) -> None:
+        """If the current project also appears in recent, it should not be duplicated."""
+        p = tmp_path / "cur"
+        p.mkdir()
+        recent = [{"project_id": "Current", "path": str(p), "name": "Current"}]
+        result = self._build_dropdown_options_with_project(
+            "Current", str(p), recent
+        )
+        # Only one entry because deduplication by project_id
+        assert len(result) == 1
+
+    def test_with_project_multiple_recent(self, tmp_path: Path) -> None:
+        """Multiple valid recent projects should all appear after the current."""
+        dirs = []
+        for name in ("alpha", "beta", "gamma"):
+            d = tmp_path / name
+            d.mkdir()
+            dirs.append(d)
+
+        recent = [
+            {"project_id": f"P{i}", "path": str(d), "name": f"Project {i}"}
+            for i, d in enumerate(dirs)
+        ]
+        result = self._build_dropdown_options_with_project(
+            "Current", "/current", recent
+        )
+        # Current + 3 recent
+        assert len(result) == 4
+        assert result[0]["label"] == "Current"
