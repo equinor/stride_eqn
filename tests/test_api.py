@@ -109,6 +109,54 @@ def test_get_annual_electricity_consumption_with_breakdown(api_client: APIClient
         assert "sector" in df.columns
 
 
+def test_annual_consumption_sector_no_duplicates(api_client: APIClient) -> None:
+    """Annual consumption by Sector should have one row per (scenario, year, sector)."""
+    df = api_client.get_annual_electricity_consumption(group_by="Sector")
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "sector"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, sector) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All consumption values should be positive"
+
+
+def test_annual_consumption_enduse_no_duplicates(api_client: APIClient) -> None:
+    """Annual consumption by End Use should have one row per (scenario, year, metric)."""
+    df = api_client.get_annual_electricity_consumption(group_by="End Use")
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "metric"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, metric) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All consumption values should be positive"
+
+
+def test_annual_consumption_breakdown_sums_to_total(api_client: APIClient) -> None:
+    """Sum of sector breakdown and end-use breakdown should each equal the total."""
+    scenario = api_client.scenarios[0]
+    year = [api_client.years[0]]
+
+    total_df = api_client.get_annual_electricity_consumption(scenarios=[scenario], years=year)
+    sector_df = api_client.get_annual_electricity_consumption(
+        scenarios=[scenario], years=year, group_by="Sector"
+    )
+    enduse_df = api_client.get_annual_electricity_consumption(
+        scenarios=[scenario], years=year, group_by="End Use"
+    )
+    assert not total_df.empty
+
+    total_value = total_df["value"].iloc[0]
+    sector_sum = sector_df["value"].sum()
+    enduse_sum = enduse_df["value"].sum()
+
+    assert (
+        abs(sector_sum - total_value) / total_value < 0.001
+    ), f"Sector sum {sector_sum:.0f} != total {total_value:.0f}"
+    assert (
+        abs(enduse_sum - total_value) / total_value < 0.001
+    ), f"End-use sum {enduse_sum:.0f} != total {total_value:.0f}"
+
+
 def test_get_annual_peak_demand(api_client: APIClient) -> None:
     """Test peak demand method executes."""
     df = api_client.get_annual_peak_demand()
@@ -127,6 +175,28 @@ def test_get_annual_peak_demand_with_breakdown(api_client: APIClient) -> None:
     assert "scenario" in df.columns
     if not df.empty:
         assert "sector" in df.columns
+
+
+def test_get_annual_peak_demand_sector_no_duplicates(api_client: APIClient) -> None:
+    """Peak demand by Sector should return exactly one row per (scenario, year, sector)."""
+    df = api_client.get_annual_peak_demand(group_by="Sector")
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "sector"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, sector) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All peak demand values should be positive"
+
+
+def test_get_annual_peak_demand_enduse_no_duplicates(api_client: APIClient) -> None:
+    """Peak demand by End Use should return exactly one row per (scenario, year, metric)."""
+    df = api_client.get_annual_peak_demand(group_by="End Use")
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "metric"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, metric) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All peak demand values should be positive"
 
 
 def test_get_secondary_metric(api_client: APIClient) -> None:
@@ -223,6 +293,89 @@ def test_get_time_series_comparison(api_client: APIClient) -> None:
 
     assert isinstance(df, pd.DataFrame)
     assert not df.empty
+
+
+def test_get_time_series_hourly_sector_no_duplicates(api_client: APIClient) -> None:
+    """Hourly time series by Sector should have one row per (scenario, year, time_period, sector)."""
+    valid_scenario = api_client.scenarios[0]
+    valid_years = [api_client.years[0]]
+    df = api_client.get_time_series_comparison(
+        valid_scenario, valid_years, group_by="Sector", resample="Hourly"
+    )
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "time_period", "sector"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, time_period, sector) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All hourly values should be positive"
+
+
+def test_get_time_series_hourly_enduse_no_duplicates(api_client: APIClient) -> None:
+    """Hourly time series by End Use should have one row per (scenario, year, time_period, metric)."""
+    valid_scenario = api_client.scenarios[0]
+    valid_years = [api_client.years[0]]
+    df = api_client.get_time_series_comparison(
+        valid_scenario, valid_years, group_by="End Use", resample="Hourly"
+    )
+    assert not df.empty
+    duplicates = df.duplicated(subset=["scenario", "year", "time_period", "metric"])
+    assert (
+        not duplicates.any()
+    ), f"Duplicate (scenario, year, time_period, metric) rows found:\n{df[duplicates]}"
+    assert (df["value"] > 0).all(), "All hourly values should be positive"
+
+
+def test_resampled_sector_mean_matches_annual(api_client: APIClient) -> None:
+    """Daily Mean sector values * 8760 should approximate annual consumption per sector."""
+    scenario = api_client.scenarios[0]
+    year = [api_client.years[0]]
+
+    daily_df = api_client.get_time_series_comparison(
+        scenario, year, group_by="Sector", resample="Daily Mean"
+    )
+    annual_df = api_client.get_annual_electricity_consumption(
+        scenarios=[scenario], years=year, group_by="Sector"
+    )
+    assert not daily_df.empty and not annual_df.empty
+
+    # Mean hourly load * 8760 hours should approximate annual total
+    daily_sector_means = daily_df.groupby("sector")["value"].mean()
+    annual_totals = annual_df.set_index("sector")["value"]
+
+    for sector in annual_totals.index:
+        estimated_annual = daily_sector_means[sector] * 8760
+        actual_annual = annual_totals[sector]
+        ratio = estimated_annual / actual_annual
+        assert 0.95 < ratio < 1.05, (
+            f"Sector '{sector}': daily mean * 8760 = {estimated_annual:.0f}, "
+            f"annual = {actual_annual:.0f}, ratio = {ratio:.3f} (expected ~1.0)"
+        )
+
+
+def test_resampled_enduse_mean_matches_annual(api_client: APIClient) -> None:
+    """Daily Mean end-use values * 8760 should approximate annual consumption per end use."""
+    scenario = api_client.scenarios[0]
+    year = [api_client.years[0]]
+
+    daily_df = api_client.get_time_series_comparison(
+        scenario, year, group_by="End Use", resample="Daily Mean"
+    )
+    annual_df = api_client.get_annual_electricity_consumption(
+        scenarios=[scenario], years=year, group_by="End Use"
+    )
+    assert not daily_df.empty and not annual_df.empty
+
+    daily_enduse_means = daily_df.groupby("metric")["value"].mean()
+    annual_totals = annual_df.set_index("metric")["value"]
+
+    for enduse in annual_totals.index:
+        estimated_annual = daily_enduse_means[enduse] * 8760
+        actual_annual = annual_totals[enduse]
+        ratio = estimated_annual / actual_annual
+        assert 0.95 < ratio < 1.05, (
+            f"End use '{enduse}': daily mean * 8760 = {estimated_annual:.0f}, "
+            f"annual = {actual_annual:.0f}, ratio = {ratio:.3f} (expected ~1.0)"
+        )
 
 
 @pytest.mark.parametrize("group_by", literal_to_list(TimeGroup))
