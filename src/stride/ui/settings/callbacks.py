@@ -18,7 +18,6 @@ from stride.ui.settings.layout import (
 )
 from stride.ui.tui import (
     delete_user_palette,
-    get_default_user_palette,
     list_user_palettes,
     load_user_palette,
     save_user_palette,
@@ -159,9 +158,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         Input("settings-palette-applied", "data"),
         prevent_initial_call=True,
     )
-    def update_unsaved_indicator(
-        counter: int, palette_data: dict[str, Any]
-    ) -> html.Div | str:
+    def update_unsaved_indicator(counter: int, palette_data: dict[str, Any]) -> html.Div | str:
         """Show an indicator when there are unsaved color edits."""
         temp_edits = get_temp_color_edits()
         if temp_edits:
@@ -249,9 +246,7 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
         State("palette-type-selector", "value"),
         prevent_initial_call=True,
     )
-    def update_delete_button(
-        selected_palette: str | None, palette_type: str
-    ) -> tuple[bool, bool]:
+    def update_delete_button(selected_palette: str | None, palette_type: str) -> tuple[bool, bool]:
         """Enable/disable delete and set-default buttons based on selection."""
         disabled = palette_type != "user" or not selected_palette
         return disabled, disabled
@@ -879,7 +874,9 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
             # Check if it has the expected structure (accept both new and legacy formats)
             _required_new = {"scenarios", "model_years", "sectors", "end_uses"}
             _required_legacy = {"scenarios", "model_years", "metrics"}
-            if not (_required_new <= palette_dict.keys() or _required_legacy <= palette_dict.keys()):
+            if not (
+                _required_new <= palette_dict.keys() or _required_legacy <= palette_dict.keys()
+            ):
                 return (
                     html.Div(
                         "✗ Invalid palette structure: must have 'scenarios', 'model_years', 'sectors', and 'end_uses' keys (or legacy 'metrics' key)",
