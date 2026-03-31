@@ -5,7 +5,7 @@ import json
 import pytest
 
 from stride.ui.palette import ColorPalette
-from stride.ui.tui import (
+from stride.ui.palette_utils import (
     get_default_user_palette,
     load_user_palette,
     save_user_palette,
@@ -28,8 +28,8 @@ def test_env(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     def mock_get_user_palette_dir():  # type: ignore[no-untyped-def]
         return palette_dir
 
-    monkeypatch.setattr("stride.ui.tui.get_stride_config_dir", mock_get_stride_config_dir)
-    monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", mock_get_user_palette_dir)
+    monkeypatch.setattr("stride.config.get_stride_config_dir", mock_get_stride_config_dir)
+    monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", mock_get_user_palette_dir)
 
     return {
         "config_dir": config_dir,

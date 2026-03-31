@@ -30,7 +30,7 @@ from stride.ui.settings.layout import (
     get_temp_edits_for_category,
     parse_temp_edit_key,
 )
-from stride.ui.tui import get_default_user_palette, list_user_palettes
+from stride.ui.palette_utils import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
 app = Dash(

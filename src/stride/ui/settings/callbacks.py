@@ -16,7 +16,7 @@ from stride.ui.settings.layout import (
     parse_temp_edit_key,
     set_temp_color_edit,
 )
-from stride.ui.tui import (
+from stride.ui.palette_utils import (
     delete_user_palette,
     list_user_palettes,
     load_user_palette,

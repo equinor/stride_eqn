@@ -156,7 +156,7 @@ class TestSaveCallbackDirectly:
         """``save_to_new_palette`` must persist the edited color to JSON."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
-        monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", lambda: palette_dir)
+        monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", lambda: palette_dir)
 
         palette = _make_palette()
         cm = _make_color_manager(palette)
@@ -181,7 +181,7 @@ class TestSaveCallbackDirectly:
         """The palette handed to ``on_palette_change_func`` must carry the edit."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
-        monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", lambda: palette_dir)
+        monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", lambda: palette_dir)
 
         palette = _make_palette()
         cm = _make_color_manager(palette)
@@ -213,7 +213,7 @@ class TestSaveCallbackDirectly:
         """
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
-        monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", lambda: palette_dir)
+        monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", lambda: palette_dir)
 
         palette = _make_palette()
         cm = _make_color_manager(palette)
@@ -249,7 +249,7 @@ class TestSaveCallbackDirectly:
         """Every category's custom color must survive the full callback chain."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
-        monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", lambda: palette_dir)
+        monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", lambda: palette_dir)
 
         palette = _make_palette()
         cm = _make_color_manager(palette)
