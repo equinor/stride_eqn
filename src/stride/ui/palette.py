@@ -353,20 +353,30 @@ class ColorPalette:
             behaviour used by ``reset_to_defaults``).
         """
         target_dict, _ = self._get_target(category)
-        fresh = cycle(self.metric_theme)
+        _theme_attr = {
+            ColorCategory.SCENARIO: "scenario_theme",
+            ColorCategory.MODEL_YEAR: "model_year_theme",
+            ColorCategory.SECTOR: "metric_theme",
+            ColorCategory.END_USE: "metric_theme",
+        }
+        _iter_attr = {
+            ColorCategory.SCENARIO: "_scenario_iterator",
+            ColorCategory.MODEL_YEAR: "_model_year_iterator",
+            ColorCategory.SECTOR: "_sector_iterator",
+            ColorCategory.END_USE: "_end_use_iterator",
+        }
+        theme = getattr(self, _theme_attr[category])
+        fresh = cycle(theme)
         for key in target_dict:
             new_color = next(fresh)
             if auto_colors is None or target_dict[key] in auto_colors:
                 target_dict[key] = new_color
             # else: preserve user-customised color
         # Reset iterator, advanced past assigned entries
-        new_iter = cycle(self.metric_theme)
+        new_iter = cycle(theme)
         for _ in range(len(target_dict)):
             next(new_iter)
-        if category == ColorCategory.SECTOR:
-            self._sector_iterator = new_iter
-        else:
-            self._end_use_iterator = new_iter
+        setattr(self, _iter_attr[category], new_iter)
 
     # -- Public API -----------------------------------------------------------
 
@@ -401,7 +411,9 @@ class ColorPalette:
             msg = "ColorPalette.update() requires a valid category"
             raise ValueError(msg)
         target_dict, iterator = self._get_target(resolved)
-        target_dict[key] = color if self._is_valid_color(color) else next(iterator)
+        target_dict[key] = (
+            color if color is not None and self._is_valid_color(color) else next(iterator)
+        )
 
         if resolved == ColorCategory.MODEL_YEAR:
             self._sort_model_years()

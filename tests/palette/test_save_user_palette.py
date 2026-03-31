@@ -73,7 +73,9 @@ class TestSetUiThemePreservesCustomColors:
 
     @pytest.mark.parametrize("cat, dict_key, label", _ALL_CATEGORIES)
     @pytest.mark.parametrize("theme", ["light", "dark"])
-    def test_edit_survives_set_ui_theme(self, cat, dict_key, label, theme):
+    def test_edit_survives_set_ui_theme(
+        self, cat: str, dict_key: str, label: str, theme: str
+    ) -> None:
         """Custom colors must survive ``set_ui_theme``."""
         palette = _make_palette()
         palette.update(label, CUSTOM_HEX, category=cat)
@@ -100,14 +102,14 @@ def _make_color_manager(palette: ColorPalette) -> ColorManager:
     return cm
 
 
-from typing import Callable, Any
+from typing import Any, Callable
 
 
 def _capture_settings_callbacks(
     get_dh: Callable[[], Any],
     get_cm: Callable[[], ColorManager],
     on_change: Callable[[ColorPalette, Any, Any], Any],
-) -> dict[str, Callable]:
+) -> dict[str, Callable[..., Any]]:
     """Call ``register_settings_callbacks`` with a mocked ``@callback``.
 
     Returns a dict mapping function name → the original (unwrapped)
@@ -115,12 +117,14 @@ def _capture_settings_callbacks(
     ``on_palette_change_func``, etc.) are bound to the arguments passed
     here.
     """
-    captured: dict[str, Callable] = {}
+    captured: dict[str, Callable[..., Any]] = {}
 
-    def fake_callback(*_args, **_kwargs):
+    def fake_callback(
+        *_args: Any, **_kwargs: Any
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Replacement for ``dash.callback`` – just record the function."""
 
-        def decorator(func: Callable) -> Callable:
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             captured[func.__name__] = func
             return func
 
@@ -148,7 +152,7 @@ class TestSaveCallbackDirectly:
 
     # -- file-on-disk correctness -----------------------------------------
 
-    def test_callback_writes_custom_color_to_disk(self, tmp_path, monkeypatch) -> None:
+    def test_callback_writes_custom_color_to_disk(self, tmp_path: Any, monkeypatch: Any) -> None:
         """``save_to_new_palette`` must persist the edited color to JSON."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
@@ -172,7 +176,7 @@ class TestSaveCallbackDirectly:
         assert raw["palette"]["model_years"]["2030"] == CUSTOM_HEX
 
     def test_callback_passes_custom_color_to_on_palette_change(
-        self, tmp_path, monkeypatch
+        self, tmp_path: Any, monkeypatch: Any
     ) -> None:
         """The palette handed to ``on_palette_change_func`` must carry the edit."""
         palette_dir = tmp_path / "palettes"
@@ -199,7 +203,7 @@ class TestSaveCallbackDirectly:
 
     @pytest.mark.parametrize("theme", ["light", "dark"])
     def test_callback_color_survives_on_palette_change_chain(
-        self, tmp_path, monkeypatch, theme: str
+        self, tmp_path: Any, monkeypatch: Any, theme: str
     ) -> None:
         """Reproduce the full bug: save → on_palette_change → set_ui_theme.
 
@@ -217,7 +221,7 @@ class TestSaveCallbackDirectly:
         # Simulate what the real on_palette_change → create_fresh_color_manager does.
         result_palettes: list[ColorPalette] = []
 
-        def realistic_on_palette_change(p, _ptype, _pname):
+        def realistic_on_palette_change(p: Any, _ptype: Any, _pname: Any) -> None:
             p_copy = p.copy()
             p_copy._scenario_iterator = cycle(p_copy.scenario_theme)
             p_copy.set_ui_theme(theme)
@@ -240,7 +244,7 @@ class TestSaveCallbackDirectly:
 
     @pytest.mark.parametrize("cat, dict_key, label", _ALL_CATEGORIES)
     def test_callback_all_categories_survive_chain(
-        self, tmp_path, monkeypatch, cat: str, dict_key: str, label: str
+        self, tmp_path: Any, monkeypatch: Any, cat: str, dict_key: str, label: str
     ) -> None:
         """Every category's custom color must survive the full callback chain."""
         palette_dir = tmp_path / "palettes"
@@ -252,7 +256,7 @@ class TestSaveCallbackDirectly:
 
         result_palettes: list[ColorPalette] = []
 
-        def realistic_on_palette_change(p, _ptype, _pname):
+        def realistic_on_palette_change(p: Any, _ptype: Any, _pname: Any) -> None:
             p_copy = p.copy()
             p_copy._scenario_iterator = cycle(p_copy.scenario_theme)
             p_copy.set_ui_theme("light")

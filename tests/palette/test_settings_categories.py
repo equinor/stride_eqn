@@ -1,11 +1,13 @@
 """Test that all four color categories appear in the settings UI layout."""
 
+from collections.abc import Sequence
+
 from stride.ui.color_manager import ColorManager
 from stride.ui.palette import ColorCategory, ColorPalette
 from stride.ui.settings.layout import create_color_preview_content
 
 
-def _extract_headings(content: list[object]) -> list[str]:
+def _extract_headings(content: Sequence[object]) -> list[str]:
     """Extract H6 heading text from the color preview content."""
     headings: list[str] = []
     for div in content:
