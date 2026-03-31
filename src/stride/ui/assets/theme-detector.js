@@ -4,9 +4,10 @@
 (function () {
   "use strict";
 
-  // Always default to dark theme
+  // Default to light (daytime) theme
   function getOSThemePreference() {
-    return true; // Always use dark theme by default
+    // Detect OS theme preference using window.matchMedia
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
   // Apply theme to all relevant elements
@@ -31,11 +32,9 @@
       sidebar.className = "sidebar-nav " + theme;
     }
 
-    // Update theme toggle switch
-    const themeToggle = document.getElementById("theme-toggle");
-    if (themeToggle) {
-      themeToggle.checked = isDark;
-    }
+    // NOTE: Do NOT set themeToggle.checked here — that would desync
+    // the DOM from Dash's React state and break the toggle callback.
+    // Dash manages the toggle value via dbc.Switch(value=...).
 
     console.log("STRIDE Theme applied:", theme);
   }
@@ -52,6 +51,6 @@
     applyTheme(prefersDark);
   }
 
-  // OS theme change listener removed - we always default to dark theme
+  // OS theme change listener removed - we default to light theme
   // Users can manually toggle theme using the theme toggle switch
 })();

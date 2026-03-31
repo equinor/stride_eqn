@@ -136,12 +136,38 @@ body {
 }
 
 /* Sidebar dropdown theming */
-.dark-theme #sidebar .Select-control {
+.dark-theme #sidebar .dash-dropdown-trigger {
     background-color: var(--bg-tertiary) !important;
     border-color: var(--border-color) !important;
 }
 
-.dark-theme #sidebar .Select-value-label {
+.dark-theme #sidebar .dash-dropdown-value {
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-placeholder {
+    color: var(--text-muted) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-content {
+    background-color: var(--bg-tertiary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-option {
+    background-color: var(--bg-tertiary) !important;
+    color: var(--text-primary) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-option:hover {
+    background-color: var(--bg-hover) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-trigger-icon {
+    color: var(--text-muted) !important;
+}
+
+.dark-theme #sidebar .dash-dropdown-search {
     color: var(--text-primary) !important;
 }
 
@@ -245,34 +271,48 @@ body {
    DROPDOWNS & INPUTS
    ============================================ */
 
-.dark-theme .Select-control,
-.dark-theme .dash-dropdown .Select-control {
+
+.dark-theme .dash-dropdown-trigger {
     background-color: var(--dropdown-bg) !important;
     border-color: var(--input-border) !important;
     color: var(--dropdown-text) !important;
 }
 
-.dark-theme .Select-placeholder,
-.dark-theme .Select-value-label {
+.dark-theme .dash-dropdown-placeholder,
+.dark-theme .dash-dropdown-value {
     color: var(--dropdown-text) !important;
 }
 
-.dark-theme .Select-menu-outer {
+.dark-theme .dash-dropdown-content {
     background-color: var(--dropdown-bg) !important;
     border-color: var(--input-border) !important;
 }
 
-.dark-theme .Select-option {
+.dark-theme .dash-dropdown-option {
     background-color: var(--dropdown-bg) !important;
     color: var(--dropdown-text) !important;
 }
 
-.dark-theme .Select-option:hover {
+.dark-theme .dash-dropdown-option:hover {
     background-color: var(--dropdown-hover) !important;
 }
 
-.dark-theme .Select-option.is-selected {
+.dark-theme .dash-dropdown-option[aria-selected="true"] {
     background-color: var(--accent-primary) !important;
+    color: #ffffff !important;
+}
+
+.dark-theme .dash-dropdown-search {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-trigger-icon {
+    color: var(--dropdown-text) !important;
+}
+
+.dark-theme .dash-dropdown-value-item {
+    background-color: var(--accent-primary) !important;
+    color: #ffffff !important;
     color: #ffffff !important;
 }
 

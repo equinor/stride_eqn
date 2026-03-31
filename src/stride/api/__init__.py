@@ -566,7 +566,7 @@ class APIClient:
                 t.scenario,
                 t.model_year as year,
                 t.{group_col},
-                t.value
+                SUM(t.value) as value
             FROM energy_projection t
             INNER JOIN peak_hours p ON
                 t.scenario = p.scenario
@@ -576,6 +576,7 @@ class APIClient:
             WHERE t.geography = ?
             AND t.scenario = ANY(?)
             AND t.model_year = ANY(?)
+            GROUP BY t.scenario, t.model_year, t.{group_col}
             ORDER BY {scenario_order}, t.model_year, t.{group_col}
             """
             params = [
@@ -1177,17 +1178,28 @@ class APIClient:
                     group_col = "metric"
                 else:  # group_by == "Sector"
                     group_col = "sector"
+                group_time_period_calc = f"ROW_NUMBER() OVER (PARTITION BY scenario, model_year, {group_col} ORDER BY timestamp)"
                 sql = f"""
+                WITH hourly_totals AS (
+                    SELECT
+                        scenario,
+                        model_year,
+                        timestamp,
+                        {group_col},
+                        SUM(value) as value
+                    FROM energy_projection
+                    WHERE geography = ?
+                        AND scenario = ?
+                        AND model_year = ANY(?)
+                    GROUP BY scenario, model_year, timestamp, {group_col}
+                )
                 SELECT
                     scenario,
                     model_year as year,
-                    {time_period_calc} as time_period,
+                    {group_time_period_calc} as time_period,
                     {group_col},
                     value
-                FROM energy_projection
-                WHERE geography = ?
-                    AND scenario = ?
-                    AND model_year = ANY(?)
+                FROM hourly_totals
                 ORDER BY scenario, model_year, timestamp, {group_col}
                 """
                 params: list[Any] = [self.project_country, scenario, years]
@@ -1238,31 +1250,50 @@ class APIClient:
                 else:  # group_by == "Sector"
                     group_col = "sector"
                 sql = f"""
+                WITH hourly_totals AS (
+                    SELECT
+                        scenario,
+                        model_year,
+                        timestamp,
+                        {group_col},
+                        SUM(value) as value
+                    FROM energy_projection
+                    WHERE geography = ?
+                        AND scenario = ?
+                        AND model_year = ANY(?)
+                    GROUP BY scenario, model_year, timestamp, {group_col}
+                )
                 SELECT
                     scenario,
                     model_year as year,
                     {time_period_calc} as time_period,
                     {group_col},
                     AVG(value) as value
-                FROM energy_projection
-                WHERE geography = ?
-                    AND scenario = ?
-                    AND model_year = ANY(?)
+                FROM hourly_totals
                 GROUP BY scenario, model_year, {time_period_calc}, {group_col}
                 ORDER BY scenario, model_year, time_period, {group_col}
                 """
                 params = [self.project_country, scenario, years]
             else:
                 sql = f"""
+                WITH hourly_totals AS (
+                    SELECT
+                        scenario,
+                        model_year,
+                        timestamp,
+                        SUM(value) as value
+                    FROM energy_projection
+                    WHERE geography = ?
+                        AND scenario = ?
+                        AND model_year = ANY(?)
+                    GROUP BY scenario, model_year, timestamp
+                )
                 SELECT
                     scenario,
                     model_year as year,
                     {time_period_calc} as time_period,
                     AVG(value) as value
-                FROM energy_projection
-                WHERE geography = ?
-                    AND scenario = ?
-                    AND model_year = ANY(?)
+                FROM hourly_totals
                 GROUP BY scenario, model_year, {time_period_calc}
                 ORDER BY scenario, model_year, time_period
                 """

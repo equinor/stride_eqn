@@ -4,13 +4,16 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from . import facets, simple
+from .utils import DEFAULT_PLOTLY_TEMPLATE
+
+from stride.ui.palette import ColorCategory
 
 if TYPE_CHECKING:
     from stride.ui.color_manager import ColorManager
 
 
 class StridePlots:
-    def __init__(self, color_generator: "ColorManager", template: str = "plotly_white"):
+    def __init__(self, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE):
         """
         Initialize StridePlots with a color generator function.
 
@@ -78,11 +81,20 @@ class StridePlots:
         return fig
 
     def grouped_multi_bars(
-        self, df: pd.DataFrame, x_group: str = "scenario", y_group: str = "end_use"
+        self,
+        df: pd.DataFrame,
+        x_group: str = "scenario",
+        y_group: str = "end_use",
+        breakdown_type: ColorCategory | None = None,
     ) -> go.Figure:
         """Create grouped and multi-level bar chart."""
         fig = simple.grouped_multi_bars(
-            df, self._color_generator, x_group, y_group, template=self._template
+            df,
+            self._color_generator,
+            x_group,
+            y_group,
+            template=self._template,
+            breakdown_type=breakdown_type,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -95,6 +107,7 @@ class StridePlots:
         stack_col: str = "metric",
         value_col: str = "demand",
         show_scenario_indicators: bool = True,
+        breakdown_type: ColorCategory | None = None,
     ) -> go.Figure:
         """Create grouped and stacked bar chart."""
         fig = simple.grouped_stacked_bars(
@@ -106,16 +119,26 @@ class StridePlots:
             value_col,
             show_scenario_indicators,
             template=self._template,
+            breakdown_type=breakdown_type,
         )
         fig.update_layout(template=self._template)
         return fig
 
     def time_series(
-        self, df: pd.DataFrame, group_by: str | None = None, chart_type: str = "Line"
+        self,
+        df: pd.DataFrame,
+        group_by: str | None = None,
+        chart_type: str = "Line",
+        breakdown_type: ColorCategory | None = None,
     ) -> go.Figure:
         """Plot time series data for multiple years of a single scenario."""
         fig = simple.time_series(
-            df, self._color_generator, group_by, chart_type, template=self._template
+            df,
+            self._color_generator,
+            group_by,
+            chart_type,
+            template=self._template,
+            breakdown_type=breakdown_type,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -138,10 +161,17 @@ class StridePlots:
         chart_type: str = "Line",
         group_by: str | None = None,
         value_col: str = "value",
+        breakdown_type: ColorCategory | None = None,
     ) -> go.Figure:
         """Create faceted subplots for each scenario with shared legend."""
         fig = facets.faceted_time_series(
-            df, self._color_generator, chart_type, group_by, value_col, template=self._template
+            df,
+            self._color_generator,
+            chart_type,
+            group_by,
+            value_col,
+            template=self._template,
+            breakdown_type=breakdown_type,
         )
         fig.update_layout(template=self._template)
         return fig
