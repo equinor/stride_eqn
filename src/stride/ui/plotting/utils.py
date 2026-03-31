@@ -160,22 +160,6 @@ def get_background_color(template: str) -> str:
         return LIGHT_THEME_BG
 
 
-def get_plotly_template() -> str:
-    """Get the default Plotly template for charts.
-
-    .. deprecated::
-        Use :data:`DEFAULT_PLOTLY_TEMPLATE` directly instead.  The low-level
-        plotting functions now honour their *template* parameter rather than
-        calling this helper.
-
-    Returns
-    -------
-    str
-        Plotly template name
-    """
-    return DEFAULT_PLOTLY_TEMPLATE
-
-
 def get_hoverlabel_style(template: str) -> dict[str, Any]:
     """
     Get hover label styling based on the current template/theme.
