@@ -61,8 +61,8 @@ def create_fresh_color_manager(
     """Create a fresh ColorManager instance, bypassing the singleton.
 
     Each project needs its own ColorManager to ensure consistent colors.
-    Applies *ui_theme* so that model-year colours are sampled from the
-    WCAG-safe iridescent range and sector/end-use colours use the
+    Applies *ui_theme* so that model-year colors are sampled from the
+    WCAG-safe iridescent range and sector/end-use colors use the
     correct metric palette for the current theme.
     """
     from itertools import cycle
@@ -70,9 +70,9 @@ def create_fresh_color_manager(
     # Reset the scenario iterator (set_ui_theme does not manage it)
     palette._scenario_iterator = cycle(palette.scenario_theme)
 
-    # Ensure all colours match the requested UI theme.  This re-samples
-    # model-year colours from the WCAG-safe iridescent range and
-    # re-assigns sector/end-use colours, resetting their iterators.
+    # Ensure all colors match the requested UI theme.  This re-samples
+    # model-year colors from the WCAG-safe iridescent range and
+    # re-assigns sector/end-use colors, resetting their iterators.
     palette.set_ui_theme(ui_theme)
 
     # Use object.__new__ to bypass ColorManager's singleton __new__ method
@@ -127,9 +127,7 @@ def load_project(project_path: str) -> tuple[bool, str]:
             _, _, existing_plotter, _ = _loaded_projects[_current_project_path]
             if existing_plotter:
                 ui_theme = "dark" if "dark" in existing_plotter._template else "light"
-        current_template = (
-            DARK_PLOTLY_TEMPLATE if ui_theme == "dark" else DEFAULT_PLOTLY_TEMPLATE
-        )
+        current_template = DARK_PLOTLY_TEMPLATE if ui_theme == "dark" else DEFAULT_PLOTLY_TEMPLATE
 
         # Create a fresh color manager for this project
         palette = project.palette.copy()
@@ -786,7 +784,9 @@ def create_app(  # noqa: C901
 
             # Create fresh color manager with new palette
             color_manager = create_fresh_color_manager(
-                palette_copy, data_handler.scenarios, ui_theme=ui_mode,
+                palette_copy,
+                data_handler.scenarios,
+                ui_theme=ui_mode,
             )
 
             plotter = StridePlots(color_manager, template=current_template)
@@ -1511,7 +1511,9 @@ def _on_palette_change_no_project(
             logger.warning(f"Could not populate sectors/end_uses: {e}")
 
         new_color_manager = create_fresh_color_manager(
-            palette_copy, data_handler.scenarios, ui_theme=ui_mode,
+            palette_copy,
+            data_handler.scenarios,
+            ui_theme=ui_mode,
         )
         new_plotter = StridePlots(new_color_manager, template=current_template)
 

@@ -6,7 +6,8 @@
 
   // Default to light (daytime) theme
   function getOSThemePreference() {
-    return false; // Use light theme by default
+    // Detect OS theme preference using window.matchMedia
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
   // Apply theme to all relevant elements

@@ -27,12 +27,12 @@ rgb_color_pattern = re.compile(r"^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d
 class ColorCategory(StrEnum):
     """Categories for color palette entries.
 
-    ``SECTOR`` and ``END_USE`` share the same colour theme but maintain
+    ``SECTOR`` and ``END_USE`` share the same color theme but maintain
     independent iterators so each group starts from position 0.
     """
 
-    SCENARIO = "scenarios"
-    MODEL_YEAR = "model_years"
+    SCENARIO = "scenario"
+    MODEL_YEAR = "model_year"
     SECTOR = "sector"
     END_USE = "end_use"
 
@@ -342,12 +342,12 @@ class ColorPalette:
         category: ColorCategory,
         auto_colors: set[str] | None = None,
     ) -> None:
-        """Re-colour entries in *category* from position 0 and reset its iterator.
+        """Re-color entries in *category* from position 0 and reset its iterator.
 
         Parameters
         ----------
         auto_colors : set[str] | None
-            When provided, only colours that appear in this set are
+            When provided, only colors that appear in this set are
             overwritten; all others are treated as user-customised and
             preserved.  Pass ``None`` to overwrite everything (legacy
             behaviour used by ``reset_to_defaults``).
@@ -358,7 +358,7 @@ class ColorPalette:
             new_color = next(fresh)
             if auto_colors is None or target_dict[key] in auto_colors:
                 target_dict[key] = new_color
-            # else: preserve user-customised colour
+            # else: preserve user-customised color
         # Reset iterator, advanced past assigned entries
         new_iter = cycle(self.metric_theme)
         for _ in range(len(target_dict)):
@@ -435,7 +435,7 @@ class ColorPalette:
         # Generate a new color
         effective = resolved or ColorCategory.SECTOR
         target_dict, iterator = self._get_target(effective)
-        color = next(iterator)
+        color = str(next(iterator))
         target_dict[key] = color
         return color
 
@@ -470,8 +470,8 @@ class ColorPalette:
     def set_ui_theme(self, theme: str) -> None:
         """Switch palettes for the given UI theme (``"light"`` or ``"dark"``).
 
-        Updates the metric theme, re-assigns sector/end-use colours, and
-        re-samples Iridescent colours for model years.  Colours that have
+        Updates the metric theme, re-assigns sector/end-use colors, and
+        re-samples Iridescent colors for model years.  colors that have
         been manually customised (i.e. do not appear in the old metric
         theme) are preserved.
         """
@@ -479,18 +479,18 @@ class ColorPalette:
             msg = f"Invalid UI theme: {theme!r}. Must be 'light' or 'dark'."
             raise ValueError(msg)
 
-        # Remember old theme colours so we can detect custom assignments
+        # Remember old theme colors so we can detect custom assignments
         old_auto_colors = set(self.metric_theme)
         old_theme = self._ui_theme
 
         self._ui_theme = theme
         self.metric_theme = list(TOL_METRICS_LIGHT if theme == "light" else TOL_METRICS_DARK)
 
-        # Re-assign sector and end-use colours, preserving custom ones
+        # Re-assign sector and end-use colors, preserving custom ones
         self._reassign_and_reset(ColorCategory.SECTOR, old_auto_colors)
         self._reassign_and_reset(ColorCategory.END_USE, old_auto_colors)
 
-        # Re-sample model year colours, preserving user-customised ones
+        # Re-sample model year colors, preserving user-customised ones
         n_years = len(self.model_years)
         if n_years > 0:
             old_model_year_auto = set(sample_iridescent(n_years, theme=old_theme))

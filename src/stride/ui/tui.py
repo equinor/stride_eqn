@@ -1236,4 +1236,4 @@ def get_palette_priority() -> str:
         Priority setting: "user" or "project". Defaults to "user".
     """
     config = load_stride_config()
-    return config.get("palette_priority", "user")
+    return str(config.get("palette_priority", "user"))

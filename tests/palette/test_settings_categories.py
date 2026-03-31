@@ -5,7 +5,7 @@ from stride.ui.palette import ColorCategory, ColorPalette
 from stride.ui.settings.layout import create_color_preview_content
 
 
-def _extract_headings(content: list) -> list[str]:
+def _extract_headings(content: list[object]) -> list[str]:
     """Extract H6 heading text from the color preview content."""
     headings: list[str] = []
     for div in content:

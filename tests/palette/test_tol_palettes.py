@@ -29,39 +29,39 @@ class TestTolPaletteConstants:
             (TOL_IRIDESCENT, 23),
         ],
     )
-    def test_palette_lengths(self, palette, expected_len):
+    def test_palette_lengths(self, palette: list[str], expected_len: int) -> None:
         assert len(palette) == expected_len
 
     @pytest.mark.parametrize(
         "palette", [TOL_BRIGHT, TOL_METRICS_LIGHT, TOL_METRICS_DARK, TOL_IRIDESCENT]
     )
-    def test_all_hex_format(self, palette):
+    def test_all_hex_format(self, palette: list[str]) -> None:
         for color in palette:
             assert color.startswith("#"), f"{color} does not start with #"
             assert len(color) == 7, f"{color} is not 7 characters"
 
-    def test_bright_no_duplicates(self):
+    def test_bright_no_duplicates(self) -> None:
         assert len(set(TOL_BRIGHT)) == len(TOL_BRIGHT)
 
-    def test_metrics_light_no_duplicates(self):
+    def test_metrics_light_no_duplicates(self) -> None:
         assert len(set(TOL_METRICS_LIGHT)) == len(TOL_METRICS_LIGHT)
 
-    def test_metrics_dark_no_duplicates(self):
+    def test_metrics_dark_no_duplicates(self) -> None:
         assert len(set(TOL_METRICS_DARK)) == len(TOL_METRICS_DARK)
 
 
 class TestSampleIridescent:
     """Test the sample_iridescent interpolation function."""
 
-    def test_zero_colors(self):
+    def test_zero_colors(self) -> None:
         assert sample_iridescent(0) == []
 
-    def test_single_color(self):
+    def test_single_color(self) -> None:
         result = sample_iridescent(1, theme="light")
         assert len(result) == 1
         assert result[0].startswith("#")
 
-    def test_light_mode_range(self):
+    def test_light_mode_range(self) -> None:
         """Light mode should use idx 16–22 (7 native colors)."""
         colors = sample_iridescent(7, theme="light")
         assert len(colors) == 7
@@ -69,14 +69,14 @@ class TestSampleIridescent:
         assert colors[0] == TOL_IRIDESCENT[16]
         assert colors[-1] == TOL_IRIDESCENT[22]
 
-    def test_dark_mode_range(self):
+    def test_dark_mode_range(self) -> None:
         """Dark mode should use idx 0–19 (20 native colors)."""
         colors = sample_iridescent(20, theme="dark")
         assert len(colors) == 20
         assert colors[0] == TOL_IRIDESCENT[0]
         assert colors[-1] == TOL_IRIDESCENT[19]
 
-    def test_interpolation_produces_unique_colors(self):
+    def test_interpolation_produces_unique_colors(self) -> None:
         """When requesting more colors than native, interpolation should still produce unique values."""
         colors = sample_iridescent(10, theme="light")
         assert len(colors) == 10
@@ -86,7 +86,7 @@ class TestSampleIridescent:
         # Most should be unique (some edge cases could overlap)
         assert len(set(colors)) >= 8
 
-    def test_two_colors(self):
+    def test_two_colors(self) -> None:
         """Requesting exactly 2 should give endpoints."""
         colors = sample_iridescent(2, theme="dark")
         assert len(colors) == 2
@@ -97,12 +97,12 @@ class TestSampleIridescent:
 class TestSetUiTheme:
     """Test the set_ui_theme method on ColorPalette."""
 
-    def test_default_is_light(self):
+    def test_default_is_light(self) -> None:
         palette = ColorPalette()
         assert palette._ui_theme == "light"
         assert palette.metric_theme == list(TOL_METRICS_LIGHT)
 
-    def test_switch_to_dark(self):
+    def test_switch_to_dark(self) -> None:
         palette = ColorPalette()
         palette.update("metric_a", category=ColorCategory.SECTOR)
         palette.update("metric_b", category=ColorCategory.SECTOR)
@@ -115,7 +115,7 @@ class TestSetUiTheme:
         assert palette.sectors["metric_a"] == TOL_METRICS_DARK[0]
         assert palette.sectors["metric_b"] == TOL_METRICS_DARK[1]
 
-    def test_switch_back_to_light(self):
+    def test_switch_back_to_light(self) -> None:
         palette = ColorPalette()
         palette.update("metric_a", category=ColorCategory.SECTOR)
         palette.set_ui_theme("dark")
@@ -123,11 +123,11 @@ class TestSetUiTheme:
         assert palette._ui_theme == "light"
         assert palette.sectors["metric_a"] == TOL_METRICS_LIGHT[0]
 
-    def test_model_years_resampled(self):
+    def test_model_years_resampled(self) -> None:
         palette = ColorPalette()
-        palette.update("2020", category="model_years")
-        palette.update("2030", category="model_years")
-        palette.update("2040", category="model_years")
+        palette.update("2020", category=ColorCategory.MODEL_YEAR)
+        palette.update("2030", category=ColorCategory.MODEL_YEAR)
+        palette.update("2040", category=ColorCategory.MODEL_YEAR)
 
         palette.set_ui_theme("dark")
         dark_colors = list(palette.model_years.values())
@@ -138,15 +138,15 @@ class TestSetUiTheme:
         # Dark and light should use different Iridescent ranges
         assert dark_colors != light_colors
 
-    def test_invalid_theme_raises(self):
+    def test_invalid_theme_raises(self) -> None:
         palette = ColorPalette()
         with pytest.raises(ValueError, match="Invalid UI theme"):
             palette.set_ui_theme("midnight")
 
-    def test_scenarios_unchanged_by_theme(self):
+    def test_scenarios_unchanged_by_theme(self) -> None:
         """Scenarios use Tol Bright which is theme-independent."""
         palette = ColorPalette()
-        palette.update("scen_a", category="scenarios")
+        palette.update("scen_a", category="scenario")
         color_before = palette.scenarios["scen_a"]
 
         palette.set_ui_theme("dark")
@@ -158,19 +158,19 @@ class TestSetUiTheme:
 class TestDefaultPaletteColors:
     """Test that new ColorPalette uses Tol colors by default."""
 
-    def test_scenario_colors_from_tol_bright(self):
+    def test_scenario_colors_from_tol_bright(self) -> None:
         palette = ColorPalette()
-        palette.update("test_scenario", category="scenarios")
+        palette.update("test_scenario", category="scenario")
         assert palette.scenarios["test_scenario"] == TOL_BRIGHT[0]
 
-    def test_sector_colors_from_tol_metrics_light(self):
+    def test_sector_colors_from_tol_metrics_light(self) -> None:
         palette = ColorPalette()
         palette.update("test_metric", category=ColorCategory.SECTOR)
         assert palette.sectors["test_metric"] == TOL_METRICS_LIGHT[0]
 
-    def test_model_year_colors_from_tol_iridescent(self):
+    def test_model_year_colors_from_tol_iridescent(self) -> None:
         palette = ColorPalette()
-        palette.update("2020", category="model_years")
+        palette.update("2020", category="model_year")
         assert palette.model_years["2020"] == TOL_IRIDESCENT[0]
 
 
@@ -181,7 +181,7 @@ class TestIndependentBreakdownColors:
     which group was registered first or how many items the other group has.
     """
 
-    def test_sectors_and_end_uses_start_from_same_first_color(self):
+    def test_sectors_and_end_uses_start_from_same_first_color(self) -> None:
         """Sectors and end-uses should both begin at metric_theme[0]."""
         palette = ColorPalette()
 
@@ -199,7 +199,7 @@ class TestIndependentBreakdownColors:
         # Key assertion: heating starts at [0], not [3]
         assert palette.end_uses["heating"] == TOL_METRICS_LIGHT[0]
 
-    def test_end_uses_registered_first_then_sectors(self):
+    def test_end_uses_registered_first_then_sectors(self) -> None:
         """Order shouldn't matter — reversing registration order works too."""
         palette = ColorPalette()
 
@@ -213,7 +213,7 @@ class TestIndependentBreakdownColors:
         assert palette.end_uses["cooling"] == TOL_METRICS_LIGHT[1]
         assert palette.sectors["residential"] == TOL_METRICS_LIGHT[0]
 
-    def test_get_also_uses_independent_iterators(self):
+    def test_get_also_uses_independent_iterators(self) -> None:
         """palette.get() should use the same independent iterators as update()."""
         palette = ColorPalette()
 
@@ -229,7 +229,7 @@ class TestIndependentBreakdownColors:
         assert e1 == TOL_METRICS_LIGHT[0]
         assert e2 == TOL_METRICS_LIGHT[1]
 
-    def test_interleaved_registration_stays_independent(self):
+    def test_interleaved_registration_stays_independent(self) -> None:
         """Interleaving sector and end-use registrations keeps sequences separate."""
         palette = ColorPalette()
 
@@ -243,7 +243,7 @@ class TestIndependentBreakdownColors:
         assert palette.end_uses["end_use_1"] == TOL_METRICS_LIGHT[0]
         assert palette.end_uses["end_use_2"] == TOL_METRICS_LIGHT[1]
 
-    def test_independent_sequences_after_theme_switch(self):
+    def test_independent_sequences_after_theme_switch(self) -> None:
         """After switching to dark mode, sequences should still be independent."""
         palette = ColorPalette()
 

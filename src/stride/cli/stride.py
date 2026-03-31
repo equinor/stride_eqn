@@ -12,6 +12,7 @@ from loguru import logger
 from stride import Project
 from stride.models import CalculatedTableOverride
 from stride.project import list_valid_countries, list_valid_model_years, list_valid_weather_years
+from stride.ui.tui import set_palette_priority
 from stride.dataset_download import (
     DatasetDownloadError,
     download_dataset,
@@ -1068,14 +1069,14 @@ def init_palette(  # noqa: C901
         scenario_names = [scenario.name for scenario in project.config.scenarios]
         print(f"Found {len(scenario_names)} scenarios from config")
         for label in scenario_names:
-            palette.update(label, category="scenarios")
+            palette.update(label, category=ColorCategory.SCENARIO)
 
         # Get model years from ProjectConfig (fast lookup)
         model_years = project.config.list_model_years()
         year_labels = [str(year) for year in model_years]
         print(f"Found {len(year_labels)} model years from config")
         for label in year_labels:
-            palette.update(label, category="model_years")
+            palette.update(label, category=ColorCategory.MODEL_YEAR)
 
         # Get sectors and end uses from database (requires query)
         api_client = APIClient(project)
@@ -1219,8 +1220,6 @@ def set_priority(priority: str) -> None:
 
     $ stride palette set-priority project
     """
-    from stride.ui.tui import set_palette_priority
-
     set_palette_priority(priority)
     if priority == "user":
         print("Palette priority set to: user")

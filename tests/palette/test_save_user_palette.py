@@ -43,8 +43,8 @@ CUSTOM_HEX = "#FF0000"  # unmistakable custom color
 
 # Parametrize tuples: (composite_key_category, dict_key, label)
 _ALL_CATEGORIES = [
-    ("scenarios", "scenarios", "reference"),
-    ("model_years", "model_years", "2030"),
+    ("scenario", "scenarios", "reference"),
+    ("model_year", "model_years", "2030"),
     ("sector", "sectors", "residential"),
     ("end_use", "end_uses", "heating"),
 ]
@@ -64,7 +64,7 @@ def _palette_dict(palette: ColorPalette, dict_key: str) -> dict[str, str]:
 
 
 class TestSetUiThemePreservesCustomColors:
-    """Unit tests for ``set_ui_theme`` preserving user-customised colours.
+    """Unit tests for ``set_ui_theme`` preserving user-customised colors.
 
     These isolate the ``set_ui_theme`` method directly, without involving
     callbacks or disk I/O, so a regression in ``set_ui_theme`` is
@@ -100,7 +100,14 @@ def _make_color_manager(palette: ColorPalette) -> ColorManager:
     return cm
 
 
-def _capture_settings_callbacks(get_dh, get_cm, on_change):
+from typing import Callable, Any
+
+
+def _capture_settings_callbacks(
+    get_dh: Callable[[], Any],
+    get_cm: Callable[[], ColorManager],
+    on_change: Callable[[ColorPalette, Any, Any], Any],
+) -> dict[str, Callable]:
     """Call ``register_settings_callbacks`` with a mocked ``@callback``.
 
     Returns a dict mapping function name → the original (unwrapped)
@@ -108,12 +115,12 @@ def _capture_settings_callbacks(get_dh, get_cm, on_change):
     ``on_palette_change_func``, etc.) are bound to the arguments passed
     here.
     """
-    captured: dict[str, object] = {}
+    captured: dict[str, Callable] = {}
 
     def fake_callback(*_args, **_kwargs):
         """Replacement for ``dash.callback`` – just record the function."""
 
-        def decorator(func):
+        def decorator(func: Callable) -> Callable:
             captured[func.__name__] = func
             return func
 
@@ -133,15 +140,15 @@ class TestSaveCallbackDirectly:
     it directly with controlled arguments.
     """
 
-    def setup_method(self):
+    def setup_method(self) -> None:
         clear_temp_color_edits()
 
-    def teardown_method(self):
+    def teardown_method(self) -> None:
         clear_temp_color_edits()
 
     # -- file-on-disk correctness -----------------------------------------
 
-    def test_callback_writes_custom_color_to_disk(self, tmp_path, monkeypatch):
+    def test_callback_writes_custom_color_to_disk(self, tmp_path, monkeypatch) -> None:
         """``save_to_new_palette`` must persist the edited color to JSON."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
@@ -150,21 +157,23 @@ class TestSaveCallbackDirectly:
         palette = _make_palette()
         cm = _make_color_manager(palette)
 
-        on_change_calls: list[tuple] = []
+        on_change_calls: list[tuple[Any, ...]] = []
         cbs = _capture_settings_callbacks(
             lambda: None,
             lambda: cm,
             lambda p, t, n: on_change_calls.append((p, t, n)),
         )
 
-        set_temp_color_edit("model_years:2030", CUSTOM_HEX)
+        set_temp_color_edit("model_year:2030", CUSTOM_HEX)
         cbs["save_to_new_palette"](1, "my_palette")
 
         # The JSON on disk must contain the custom color.
         raw = json.loads((palette_dir / "my_palette.json").read_text())
         assert raw["palette"]["model_years"]["2030"] == CUSTOM_HEX
 
-    def test_callback_passes_custom_color_to_on_palette_change(self, tmp_path, monkeypatch):
+    def test_callback_passes_custom_color_to_on_palette_change(
+        self, tmp_path, monkeypatch
+    ) -> None:
         """The palette handed to ``on_palette_change_func`` must carry the edit."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
@@ -180,7 +189,7 @@ class TestSaveCallbackDirectly:
             lambda p, _t, _n: received_palettes.append(p.copy()),
         )
 
-        set_temp_color_edit("model_years:2030", CUSTOM_HEX)
+        set_temp_color_edit("model_year:2030", CUSTOM_HEX)
         cbs["save_to_new_palette"](1, "my_palette")
 
         assert len(received_palettes) == 1
@@ -189,7 +198,9 @@ class TestSaveCallbackDirectly:
     # -- the real bug: set_ui_theme inside on_palette_change clobbers ----
 
     @pytest.mark.parametrize("theme", ["light", "dark"])
-    def test_callback_color_survives_on_palette_change_chain(self, tmp_path, monkeypatch, theme):
+    def test_callback_color_survives_on_palette_change_chain(
+        self, tmp_path, monkeypatch, theme: str
+    ) -> None:
         """Reproduce the full bug: save → on_palette_change → set_ui_theme.
 
         ``on_palette_change`` (in app.py) calls
@@ -218,7 +229,7 @@ class TestSaveCallbackDirectly:
             realistic_on_palette_change,
         )
 
-        set_temp_color_edit("model_years:2030", CUSTOM_HEX)
+        set_temp_color_edit("model_year:2030", CUSTOM_HEX)
         cbs["save_to_new_palette"](1, "my_palette")
 
         assert len(result_palettes) == 1
@@ -229,8 +240,8 @@ class TestSaveCallbackDirectly:
 
     @pytest.mark.parametrize("cat, dict_key, label", _ALL_CATEGORIES)
     def test_callback_all_categories_survive_chain(
-        self, tmp_path, monkeypatch, cat, dict_key, label
-    ):
+        self, tmp_path, monkeypatch, cat: str, dict_key: str, label: str
+    ) -> None:
         """Every category's custom color must survive the full callback chain."""
         palette_dir = tmp_path / "palettes"
         palette_dir.mkdir()
