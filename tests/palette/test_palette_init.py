@@ -5,7 +5,7 @@ from pathlib import Path
 from stride.api import APIClient
 from stride.project import Project
 from stride.ui.palette import ColorPalette
-from stride.ui.tui import get_user_palette_dir
+from stride.ui.palette_utils import get_user_palette_dir
 
 
 def test_api_query_methods() -> None:
@@ -95,7 +95,7 @@ def test_palette_init_from_user_palette() -> None:
     print("Testing palette initialization from user palette")
     print("=" * 80)
 
-    from stride.ui.tui import load_user_palette, save_user_palette
+    from stride.ui.palette_utils import load_user_palette, save_user_palette
 
     # Create a test user palette
     test_palette_name = "test_source_palette"
@@ -120,9 +120,9 @@ def test_palette_init_from_user_palette() -> None:
         print(f"  {label}: {color}")
 
     # Verify (loaded_dict has lowercase keys)
-    assert loaded_dict == {k.lower(): v for k, v in test_palette.items()}, (
-        "Loaded palette should match original"
-    )
+    assert loaded_dict == {
+        k.lower(): v for k, v in test_palette.items()
+    }, "Loaded palette should match original"
     print("✓ User palette loaded successfully")
 
     # Clean up

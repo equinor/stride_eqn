@@ -9,10 +9,10 @@ The class provides a class method to intialize a palette from a dictionary while
 """
 
 import re
+from enum import StrEnum
 from itertools import cycle
 from typing import Any, Mapping, MutableSequence, TypedDict
 
-from plotly import colors
 
 # can have a project color palette, or a user color palette?
 # can toggle between project and use color palette?
@@ -22,6 +22,180 @@ from plotly import colors
 
 hex_color_pattern = re.compile(r"^#[0-9A-Fa-f]{6}$|^#[0-9A-Fa-f]{8}$")
 rgb_color_pattern = re.compile(r"^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d.]+\s*)?\)$")
+
+
+class ColorCategory(StrEnum):
+    """Categories for color palette entries.
+
+    ``SECTOR`` and ``END_USE`` share the same color theme but maintain
+    independent iterators so each group starts from position 0.
+    """
+
+    SCENARIO = "scenario"
+    MODEL_YEAR = "model_year"
+    SECTOR = "sector"
+    END_USE = "end_use"
+
+
+# ============================================================================
+# Paul Tol color-blind-safe palettes
+# Source: https://sronpersonalpages.nl/~pault/
+# ============================================================================
+
+# Scenarios: Tol Bright (7 colors) — primary qualitative, color-blind safe
+TOL_BRIGHT = [
+    "#4477AA",  # blue
+    "#CCBB44",  # yellow
+    "#228833",  # green
+    "#EE6677",  # red
+    "#66CCEE",  # cyan
+    "#AA3377",  # purple
+    "#BBBBBB",  # grey
+]
+
+# Metrics (light mode): dark-enough colors from Tol Muted + Discrete Rainbow 14
+TOL_METRICS_LIGHT = [
+    "#CC6677",  # muted rose
+    "#999933",  # muted olive
+    "#5289C7",  # DR14 med blue
+    "#117733",  # muted green
+    "#882255",  # muted wine
+    "#1965B0",  # DR14 blue
+    "#E8601C",  # DR14 red-orange
+    "#332288",  # muted indigo
+    "#AA4499",  # muted purple
+    "#DC050C",  # DR14 red
+    "#AE76A3",  # DR14 mauve
+    "#882E72",  # DR14 dk purple
+]
+
+# Metrics (dark mode): light-enough colors from Tol Muted + Discrete Rainbow 14
+TOL_METRICS_DARK = [
+    "#CC6677",  # muted rose
+    "#DDCC77",  # muted sand
+    "#88CCEE",  # muted cyan
+    "#44AA99",  # muted teal
+    "#AA4499",  # muted purple
+    "#5289C7",  # DR14 med blue
+    "#999933",  # muted olive
+    "#F4A736",  # DR14 orange
+    "#90C987",  # DR14 lt green
+    "#D1BBD7",  # DR14 lavender
+    "#AE76A3",  # DR14 mauve
+    "#7BAFDE",  # DR14 lt blue
+    "#E8601C",  # DR14 red-orange
+    "#DDDDDD",  # muted pale grey
+    "#DC050C",  # DR14 red
+    "#117733",  # muted green
+]
+
+# Model years: Tol Iridescent (23 colors, sequential, designed for interpolation)
+TOL_IRIDESCENT = [
+    "#FEFBE9",  # idx  0
+    "#FCF7D5",  # idx  1
+    "#F5F3C1",  # idx  2
+    "#EAF0B5",  # idx  3
+    "#DDECBF",  # idx  4
+    "#D0E7CA",  # idx  5
+    "#C2E3D2",  # idx  6
+    "#B5DDD8",  # idx  7
+    "#A8D8DC",  # idx  8
+    "#9BD2E1",  # idx  9
+    "#8DCBE4",  # idx 10
+    "#81C4E7",  # idx 11
+    "#7BBCE7",  # idx 12
+    "#7EB2E4",  # idx 13
+    "#88A5DD",  # idx 14
+    "#9398D2",  # idx 15
+    "#9B8AC4",  # idx 16
+    "#9D7DB2",  # idx 17
+    "#9A709E",  # idx 18
+    "#906388",  # idx 19
+    "#805770",  # idx 20
+    "#684957",  # idx 21
+    "#46353A",  # idx 22
+]
+
+# WCAG-derived usable index ranges for Iridescent (3.0:1 contrast threshold)
+IRIDESCENT_LIGHT_START = 16  # First index passing 3:1 on #FFFFFF
+IRIDESCENT_LIGHT_END = 22  # Last index (inclusive)
+IRIDESCENT_DARK_START = 0  # First index passing 3:1 on #1A1A1A
+IRIDESCENT_DARK_END = 19  # Last index passing 3:1 on #1A1A1A
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert hex color string to RGB tuple."""
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    """Convert RGB values to hex color string."""
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _interpolate_hex(color1: str, color2: str, t: float) -> str:
+    """Linearly interpolate between two hex colors.
+
+    Parameters
+    ----------
+    color1 : str
+        Start color (hex)
+    color2 : str
+        End color (hex)
+    t : float
+        Interpolation factor, 0.0 = color1, 1.0 = color2
+    """
+    r1, g1, b1 = _hex_to_rgb(color1)
+    r2, g2, b2 = _hex_to_rgb(color2)
+    r = round(r1 + (r2 - r1) * t)
+    g = round(g1 + (g2 - g1) * t)
+    b = round(b1 + (b2 - b1) * t)
+    return _rgb_to_hex(r, g, b)
+
+
+def sample_iridescent(n: int, theme: str = "light") -> list[str]:
+    """Sample n evenly-spaced colors from the Tol Iridescent ramp.
+
+    Uses the WCAG-safe index range for the given theme, and linearly
+    interpolates between defined colors when more colors are needed
+    than available in the usable range.
+
+    Parameters
+    ----------
+    n : int
+        Number of colors to produce
+    theme : str
+        ``"light"`` or ``"dark"`` — selects the usable index range
+
+    Returns
+    -------
+    list[str]
+        List of n hex color strings
+    """
+    if theme == "dark":
+        start, end = IRIDESCENT_DARK_START, IRIDESCENT_DARK_END
+    else:
+        start, end = IRIDESCENT_LIGHT_START, IRIDESCENT_LIGHT_END
+
+    if n <= 0:
+        return []
+    if n == 1:
+        mid = (start + end) // 2
+        return [TOL_IRIDESCENT[mid]]
+
+    # Generate n evenly-spaced positions in the continuous [start, end] range
+    positions = [start + i * (end - start) / (n - 1) for i in range(n)]
+    result = []
+    for pos in positions:
+        idx_low = int(pos)
+        idx_high = min(idx_low + 1, len(TOL_IRIDESCENT) - 1)
+        if idx_low == idx_high:
+            result.append(TOL_IRIDESCENT[idx_low])
+        else:
+            t = pos - idx_low
+            result.append(_interpolate_hex(TOL_IRIDESCENT[idx_low], TOL_IRIDESCENT[idx_high], t))
+    return result
 
 
 class PaletteItem(TypedDict):
@@ -39,63 +213,43 @@ class ColorPalette:
     Keys typically map to label values in a stack chart or chart label.
     """
 
-    def __init__(  # noqa: C901
+    def __init__(
         self,
-        palette: dict[str, dict[str, str]] | dict[str, str] | None = None,
+        *,
+        scenario_theme: list[str] | None = None,
+        model_year_theme: list[str] | None = None,
+        metric_theme: list[str] | None = None,
     ):
-        """Initializes a new ColorPalette instance with colors organized by category.
+        """Create an empty palette with the given color themes.
+
+        Use :meth:`load` to construct a palette from serialized data.
 
         Parameters
         ----------
-        palette : dict[str, str] | dict[str, dict[str, str]] | None, optional
-            Either a flat dictionary of label->color mappings (legacy format) or
-            a structured dictionary with 'scenarios', 'model_years', and 'metrics' keys.
+        scenario_theme : list[str] | None
+            Custom color cycle for scenarios.  Defaults to :data:`TOL_BRIGHT`.
+        model_year_theme : list[str] | None
+            Custom color cycle for model years.  Defaults to :data:`TOL_IRIDESCENT`.
+        metric_theme : list[str] | None
+            Custom color cycle for sectors and end uses.  Defaults to
+            :data:`TOL_METRICS_LIGHT`.
         """
-        # Different themes for each category
-        self.scenario_theme = colors.qualitative.Antique  # type: ignore[attr-defined]
-        self.model_year_theme = colors.sequential.YlOrRd  # type: ignore[attr-defined]
-        self.metric_theme = colors.qualitative.Prism  # type: ignore[attr-defined]
+        # Color-blind-safe themes (Paul Tol palettes) — overridable
+        self.scenario_theme: list[str] = list(scenario_theme or TOL_BRIGHT)
+        self.model_year_theme: list[str] = list(model_year_theme or TOL_IRIDESCENT)
+        self.metric_theme: list[str] = list(metric_theme or TOL_METRICS_LIGHT)
+        self._ui_theme: str = "light"  # "light" or "dark"
 
         self._scenario_iterator = cycle(self.scenario_theme)
         self._model_year_iterator = cycle(self.model_year_theme)
-        self._metric_iterator = cycle(self.metric_theme)
+        self._sector_iterator = cycle(self.metric_theme)
+        self._end_use_iterator = cycle(self.metric_theme)
 
         # Separate palettes for each category
         self.scenarios: dict[str, str] = {}
         self.model_years: dict[str, str] = {}
-        self.metrics: dict[str, str] = {}
-
-        if palette:
-            # Check if it's the new structured format
-            if (
-                isinstance(palette, dict)
-                and all(k in palette for k in ["scenarios", "model_years", "metrics"])
-                and all(isinstance(v, dict) for v in palette.values())
-            ):
-                # New structured format
-                scenarios_dict = palette["scenarios"]
-                model_years_dict = palette["model_years"]
-                metrics_dict = palette["metrics"]
-
-                if isinstance(scenarios_dict, dict):
-                    for label, color in scenarios_dict.items():
-                        if isinstance(color, str):
-                            self.update(label, color, category="scenarios")
-
-                if isinstance(model_years_dict, dict):
-                    for label, color in model_years_dict.items():
-                        if isinstance(color, str):
-                            self.update(label, color, category="model_years")
-
-                if isinstance(metrics_dict, dict):
-                    for label, color in metrics_dict.items():
-                        if isinstance(color, str):
-                            self.update(label, color, category="metrics")
-            else:
-                # Legacy flat format - default to metrics
-                for label, color_value in palette.items():
-                    if isinstance(color_value, str):
-                        self.update(label, color_value)
+        self.sectors: dict[str, str] = {}
+        self.end_uses: dict[str, str] = {}
 
     @property
     def palette(self) -> dict[str, str]:
@@ -109,19 +263,33 @@ class ColorPalette:
         result = {}
         result.update(self.scenarios)
         result.update(self.model_years)
-        result.update(self.metrics)
+        result.update(self.sectors)
+        result.update(self.end_uses)
         return result
 
     def __str__(self) -> str:
         """Return a string representation of the palette."""
         num_scenarios = len(self.scenarios)
         num_model_years = len(self.model_years)
-        num_metrics = len(self.metrics)
-        return f"ColorPalette(scenarios={num_scenarios}, model_years={num_model_years}, metrics={num_metrics})"
+        num_sectors = len(self.sectors)
+        num_end_uses = len(self.end_uses)
+        return (
+            f"ColorPalette(scenarios={num_scenarios}, model_years={num_model_years}, "
+            f"sectors={num_sectors}, end_uses={num_end_uses})"
+        )
 
     def __repr__(self) -> str:
         """Return a detailed string representation of the palette."""
         return self.__str__()
+
+    @property
+    def has_custom_themes(self) -> bool:
+        """Return ``True`` if any theme differs from the built-in defaults."""
+        return (
+            self.scenario_theme != list(TOL_BRIGHT)
+            or self.model_year_theme != list(TOL_IRIDESCENT)
+            or self.metric_theme != list(TOL_METRICS_LIGHT)
+        )
 
     def copy(self) -> "ColorPalette":
         """Create a deep copy of this ColorPalette.
@@ -131,362 +299,581 @@ class ColorPalette:
         ColorPalette
             A new ColorPalette instance with the same colors and structure.
         """
-        return ColorPalette(self.to_dict())
+        return ColorPalette.from_dict(self.to_dict())
 
-    def update(self, key: str, color: str | None = None, category: str | None = None) -> None:  # noqa: C901
-        """Updates or creates a new color for the given *key* in the specified category.
+    # -- Helper methods (used by update / get / pop / set_ui_theme) -----------
+
+    @staticmethod
+    def _is_valid_color(color: str | None) -> bool:
+        """Return ``True`` if *color* is a recognised hex or rgb/rgba string."""
+        return isinstance(color, str) and bool(
+            hex_color_pattern.match(color) or rgb_color_pattern.match(color)
+        )
+
+    def _get_target(self, category: ColorCategory) -> tuple[dict[str, str], Any]:
+        """Return ``(color_dict, iterator)`` for *category*."""
+        _map = {
+            ColorCategory.SCENARIO: (self.scenarios, self._scenario_iterator),
+            ColorCategory.MODEL_YEAR: (self.model_years, self._model_year_iterator),
+            ColorCategory.SECTOR: (self.sectors, self._sector_iterator),
+            ColorCategory.END_USE: (self.end_uses, self._end_use_iterator),
+        }
+        return _map[category]
+
+    def _resolve_str_category(
+        self,
+        category: "ColorCategory | str | None",
+    ) -> "ColorCategory | None":
+        """Convert a plain string to :class:`ColorCategory`, passing through ``None``."""
+        if category is None or isinstance(category, ColorCategory):
+            return category
+        return ColorCategory(category)
+
+    def _sort_model_years(self) -> None:
+        """Re-sort model-year entries in chronological order (in-place)."""
+        sorted_items = sorted(
+            self.model_years.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0
+        )
+        self.model_years.clear()
+        self.model_years.update(sorted_items)
+
+    def _reassign_and_reset(
+        self,
+        category: ColorCategory,
+        auto_colors: set[str] | None = None,
+    ) -> None:
+        """Re-color entries in *category* from position 0 and reset its iterator.
+
+        Parameters
+        ----------
+        auto_colors : set[str] | None
+            When provided, only colors that appear in this set are
+            overwritten; all others are treated as user-customised and
+            preserved.  Pass ``None`` to overwrite everything (legacy
+            behaviour used by ``reset_to_defaults``).
+        """
+        target_dict, _ = self._get_target(category)
+        _theme_attr = {
+            ColorCategory.SCENARIO: "scenario_theme",
+            ColorCategory.MODEL_YEAR: "model_year_theme",
+            ColorCategory.SECTOR: "metric_theme",
+            ColorCategory.END_USE: "metric_theme",
+        }
+        _iter_attr = {
+            ColorCategory.SCENARIO: "_scenario_iterator",
+            ColorCategory.MODEL_YEAR: "_model_year_iterator",
+            ColorCategory.SECTOR: "_sector_iterator",
+            ColorCategory.END_USE: "_end_use_iterator",
+        }
+        theme = getattr(self, _theme_attr[category])
+        fresh = cycle(theme)
+        for key in target_dict:
+            new_color = next(fresh)
+            if auto_colors is None or target_dict[key] in auto_colors:
+                target_dict[key] = new_color
+            # else: preserve user-customised color
+        # Reset iterator, advanced past assigned entries
+        new_iter = cycle(theme)
+        for _ in range(len(target_dict)):
+            next(new_iter)
+        setattr(self, _iter_attr[category], new_iter)
+
+    # -- Public API -----------------------------------------------------------
+
+    def update(
+        self,
+        key: str,
+        color: str | None = None,
+        *,
+        category: ColorCategory | str,
+    ) -> None:
+        """Update or create a color for the given *key*.
 
         Keys are normalized to lowercase for consistent lookups.
 
         Parameters
         ----------
         key : str
-            The lookup key for which to assign or update the color
+            The lookup key for which to assign or update the color.
         color : str | None, optional
-            A hex string or rgb/rgba string representation of the color. If ``None`` or invalid, a new color
-            is assigned based on the theme.
-        category : str | None, optional
-            The category to update: 'scenarios', 'model_years', or 'metrics'.
-            If None, attempts to determine automatically or defaults to 'metrics'.
-
-        Raises
-        ------
-        TypeError
-            If *key* is not a string.
-        ValueError
-            If *category* is not a valid category name.
+            A hex or rgb/rgba color string.  If ``None`` or invalid a new
+            color is assigned from the category's theme.
+        category : ColorCategory | str
+            Target category (required).
         """
-
         if not isinstance(key, str):
             msg = "ColorPalette: Key must be a string"
             raise TypeError(msg)
 
-        # Normalize key to lowercase for consistent lookups
         key = key.lower()
-
-        # Determine which palette to update to get the right color iterator
-        if category is None:
-            # Auto-detect: check if key exists in any category
-            if key in self.scenarios:
-                category = "scenarios"
-            elif key in self.model_years:
-                category = "model_years"
-            elif key in self.metrics:
-                category = "metrics"
-            else:
-                # Default to metrics for new keys
-                category = "metrics"
-
-        # Get color from appropriate theme if not provided or invalid
-        if color is None or not isinstance(color, str):
-            if category == "scenarios":
-                color = next(self._scenario_iterator)
-            elif category == "model_years":
-                color = next(self._model_year_iterator)
-            else:  # metrics
-                color = next(self._metric_iterator)
-        elif not (hex_color_pattern.match(color) or rgb_color_pattern.match(color)):
-            if category == "scenarios":
-                color = next(self._scenario_iterator)
-            elif category == "model_years":
-                color = next(self._model_year_iterator)
-            else:  # metrics
-                color = next(self._metric_iterator)
-
-        if category == "scenarios":
-            self.scenarios[key] = color
-        elif category == "model_years":
-            self.model_years[key] = color
-            # Re-sort to maintain chronological order (but don't reassign colors)
-            # This ensures display order is correct without changing existing color assignments
-            self.model_years = dict(
-                sorted(self.model_years.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
-            )
-        elif category == "metrics":
-            self.metrics[key] = color
-        else:
-            msg = (
-                f"Invalid category: {category}. Must be 'scenarios', 'model_years', or 'metrics'."
-            )
+        resolved = self._resolve_str_category(category)
+        if resolved is None:
+            msg = "ColorPalette.update() requires a valid category"
             raise ValueError(msg)
+        target_dict, iterator = self._get_target(resolved)
+        target_dict[key] = (
+            color if color is not None and self._is_valid_color(color) else next(iterator)
+        )
 
-    def get(self, key: str, category: str | None = None) -> str:
-        """Returns the hex string representation of the color for a given *key*.
+        if resolved == ColorCategory.MODEL_YEAR:
+            self._sort_model_years()
 
-        Keys are normalized to lowercase for consistent lookups.
-        Searches across all categories (scenarios, model_years, metrics) unless
-        a specific category is provided. If *key* does not exist, a new color is
-        generated based on the theme, stored in the metrics category, and returned.
+    def get(self, key: str, category: ColorCategory | str | None = None) -> str:
+        """Return the color for *key*, generating one if it does not exist.
+
+        Keys are normalized to lowercase.  Searches across all categories
+        unless *category* is specified.
 
         Parameters
         ----------
         key : str
-            The lookup key for the color.
-        category : str | None, optional
-            Specific category to search: 'scenarios', 'model_years', or 'metrics'.
-            If None, searches all categories.
-
-        Returns
-        -------
-        str
-            hex string representing the color for a given *key*
+            The lookup key.
+        category : ColorCategory | str | None, optional
+            Specific category to search / store into.
         """
-        # Normalize key to lowercase for consistent lookups
         key = key.lower()
+        resolved = self._resolve_str_category(category)
 
-        color = None
-
-        if category:
-            # Search specific category
-            if category == "scenarios":
-                color = self.scenarios.get(key)
-            elif category == "model_years":
-                color = self.model_years.get(key)
-            elif category == "metrics":
-                color = self.metrics.get(key)
+        if resolved is not None:
+            target_dict, _ = self._get_target(resolved)
+            if key in target_dict:
+                return target_dict[key]
         else:
-            # Search all categories
-            color = self.scenarios.get(key) or self.model_years.get(key) or self.metrics.get(key)
+            for cat in ColorCategory:
+                d, _ = self._get_target(cat)
+                if key in d:
+                    return d[key]
 
-        if color is None:
-            # Get the next color from the appropriate theme and store it in metrics by default
-            color = next(self._metric_iterator)
-            self.metrics[key] = color
-
+        # Generate a new color
+        effective = resolved or ColorCategory.SECTOR
+        target_dict, iterator = self._get_target(effective)
+        color = str(next(iterator))
+        target_dict[key] = color
         return color
 
-    def pop(self, key: str, category: str | None = None) -> str:
-        """Removes the entry from the palette and returns the color string.
-
-        Keys are normalized to lowercase for consistent lookups.
+    def pop(self, key: str, *, category: ColorCategory | str) -> str:
+        """Remove *key* from the palette and return its color.
 
         Parameters
         ----------
         key : str
-            The key to remove from the palette
-        category : str | None, optional
-            Specific category to remove from. If None, searches all categories.
-
-        Returns
-        -------
-        str
-            The color string that was associated with *key*
+            Key to remove.
+        category : ColorCategory | str
+            Category to remove from (required).
 
         Raises
         ------
         KeyError
-            If *key* is not present in any category
+            If *key* is not found.
         """
-        # Normalize key to lowercase for consistent lookups
         key = key.lower()
+        resolved = self._resolve_str_category(category)
+        if resolved is None:
+            msg = "ColorPalette.pop() requires a valid category"
+            raise ValueError(msg)
 
-        if category:
-            # Remove from specific category
-            if category == "scenarios" and key in self.scenarios:
-                return self.scenarios.pop(key)
-            elif category == "model_years" and key in self.model_years:
-                return self.model_years.pop(key)
-            elif category == "metrics" and key in self.metrics:
-                return self.metrics.pop(key)
-        else:
-            # Search all categories
-            if key in self.scenarios:
-                return self.scenarios.pop(key)
-            elif key in self.model_years:
-                return self.model_years.pop(key)
-            elif key in self.metrics:
-                return self.metrics.pop(key)
+        d, _ = self._get_target(resolved)
+        if key in d:
+            return d.pop(key)
 
         msg = f"ColorPalette: unable to remove key: {key}"
         raise KeyError(msg)
 
-    @classmethod
-    def from_dict(cls, palette: dict[str, dict[str, str]] | dict[str, str]) -> "ColorPalette":  # noqa: C901
+    def set_ui_theme(self, theme: str) -> None:
+        """Switch palettes for the given UI theme (``"light"`` or ``"dark"``).
+
+        Updates the metric theme, re-assigns sector/end-use colors, and
+        re-samples Iridescent colors for model years.  colors that have
+        been manually customised (i.e. do not appear in the old metric
+        theme) are preserved.
         """
-        Loads the color palette from a dictionary representation with sanitization.
+        if theme not in ("light", "dark"):
+            msg = f"Invalid UI theme: {theme!r}. Must be 'light' or 'dark'."
+            raise ValueError(msg)
+
+        # Remember old theme colors so we can detect custom assignments
+        old_auto_colors = set(self.metric_theme)
+        old_theme = self._ui_theme
+
+        self._ui_theme = theme
+        self.metric_theme = list(TOL_METRICS_LIGHT if theme == "light" else TOL_METRICS_DARK)
+
+        # Re-assign sector and end-use colors, preserving custom ones
+        self._reassign_and_reset(ColorCategory.SECTOR, old_auto_colors)
+        self._reassign_and_reset(ColorCategory.END_USE, old_auto_colors)
+
+        # Re-sample model year colors, preserving user-customised ones
+        n_years = len(self.model_years)
+        if n_years > 0:
+            old_model_year_auto = set(sample_iridescent(n_years, theme=old_theme))
+            new_colors = sample_iridescent(n_years, theme=theme)
+            for (key, old_color), color in zip(list(self.model_years.items()), new_colors):
+                if old_color in old_model_year_auto:
+                    self.model_years[key] = color
+
+        self.model_year_theme = list(TOL_IRIDESCENT)
+        self._model_year_iterator = cycle(self.model_year_theme)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ColorPalette":  # noqa: C901
+        """Construct a :class:`ColorPalette` from a serialized dictionary.
+
+        Accepts three on-disk shapes:
+
+        * **Structured (current)** — top-level keys ``scenarios``,
+          ``model_years``, ``sectors``, ``end_uses`` (each mapping
+          names to hex colors).  Optionally includes a ``themes`` key
+          with per-category color-cycle overrides ("full" palette).
+        * **Legacy structured** — ``scenarios``, ``model_years``, and
+          ``metrics`` (the old 3-key format).
+        * **Legacy flat** — a single-level ``{name: color}`` dict.
+
+        When ``themes`` is present the palette is *full*: custom color
+        cycles replace the built-in TOL defaults.  Otherwise the palette
+        is *minimal* and the TOL defaults are used for any names not
+        already assigned a color.
 
         Parameters
         ----------
-        palette : dict[str, str] | dict[str, dict[str, str]]
-            Either a flat mapping of string keys to hex color strings (legacy format)
-            or a structured dictionary with 'scenarios', 'model_years', and 'metrics' keys.
+        data : dict[str, Any]
+            Serialized palette dictionary.
 
         Returns
         -------
         ColorPalette
-            A new :class:`ColorPalette` instance populated with the provided colors.
-            Invalid values are replaced by the next available color in the theme. The default
-            theme is Plotly's Prism palette.
+            A new populated instance.
         """
+        # Extract optional custom themes ("full" palette)
+        themes_raw = data.get("themes")
+        custom_scenario_theme: list[str] | None = None
+        custom_model_year_theme: list[str] | None = None
+        custom_metric_theme: list[str] | None = None
 
-        new_palette = cls()
+        if isinstance(themes_raw, dict):
+            st = themes_raw.get("scenarios")
+            if isinstance(st, list) and st:
+                custom_scenario_theme = st
+            myt = themes_raw.get("model_years")
+            if isinstance(myt, list) and myt:
+                custom_model_year_theme = myt
+            # sectors and end_uses share the metric theme; prefer "sectors"
+            mt = themes_raw.get("sectors") or themes_raw.get("end_uses")
+            if isinstance(mt, list) and mt:
+                custom_metric_theme = mt
 
-        # Check if it's the new structured format
-        if (
-            isinstance(palette, dict)
-            and all(k in palette for k in ["scenarios", "model_years", "metrics"])
-            and all(isinstance(v, dict) for v in palette.values())
-        ):
-            # Process each category with appropriate theme
-            for category_name in ["scenarios", "model_years", "metrics"]:
-                category_value = palette.get(category_name)
+        new_palette = cls(
+            scenario_theme=custom_scenario_theme,
+            model_year_theme=custom_model_year_theme,
+            metric_theme=custom_metric_theme,
+        )
+
+        # Detect structured format — ignore "themes" key for this check
+        _category_keys = {"scenarios", "model_years", "metrics", "sectors", "end_uses"}
+        category_values = {k: v for k, v in data.items() if k in _category_keys}
+        is_structured = bool(category_values) and all(
+            isinstance(v, dict) for v in category_values.values()
+        )
+
+        if is_structured:
+            # Map category names to (target_dict, theme)
+            _category_targets: list[tuple[str, dict[str, str], list[str]]] = [
+                ("scenarios", new_palette.scenarios, new_palette.scenario_theme),
+                ("model_years", new_palette.model_years, new_palette.model_year_theme),
+                ("sectors", new_palette.sectors, new_palette.metric_theme),
+                ("end_uses", new_palette.end_uses, new_palette.metric_theme),
+                ("metrics", new_palette.sectors, new_palette.metric_theme),  # legacy compat
+            ]
+
+            for category_name, target_dict, theme in _category_targets:
+                category_value = data.get(category_name)
                 if not isinstance(category_value, dict):
                     continue
 
-                category_dict: dict[str, str] = category_value
-
-                # Get appropriate color iterator for this category
-                if category_name == "scenarios":
-                    color_iterator = cycle(colors.qualitative.Bold)  # type: ignore[attr-defined]
-                elif category_name == "model_years":
-                    color_iterator = cycle(colors.sequential.YlOrRd)  # type: ignore[attr-defined]
-                else:  # metrics
-                    color_iterator = cycle(colors.qualitative.Prism)  # type: ignore[attr-defined]
+                color_iterator = cycle(theme)
 
                 # Sort model years as integers before processing to ensure proper color gradient
-                items = list(category_dict.items())
+                items = list(category_value.items())
                 if category_name == "model_years":
                     items.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
 
                 for key, color in items:
-                    # Normalize key to lowercase
                     normalized_key = key.lower()
 
                     if not (hex_color_pattern.match(color) or rgb_color_pattern.match(color)):
                         color = next(color_iterator)
 
-                    if category_name == "scenarios":
-                        new_palette.scenarios[normalized_key] = color
-                    elif category_name == "model_years":
-                        new_palette.model_years[normalized_key] = color
-                    elif category_name == "metrics":
-                        new_palette.metrics[normalized_key] = color
+                    # Skip duplicates (e.g. legacy metrics overlapping with sectors)
+                    if normalized_key not in target_dict:
+                        target_dict[normalized_key] = color
         else:
-            # Legacy flat format - default to metrics
-            metric_iterator = cycle(colors.qualitative.Prism)  # type: ignore[attr-defined]
-            for key, color_value in palette.items():
+            # Legacy flat format - default to sectors
+            metric_iterator = cycle(new_palette.metric_theme)
+            for key, color_value in data.items():
                 if not isinstance(color_value, str):
                     continue
-                # Normalize key to lowercase
                 normalized_key = key.lower()
 
                 if not (
                     hex_color_pattern.match(color_value) or rgb_color_pattern.match(color_value)
                 ):
                     color_value = next(metric_iterator)
-                new_palette.metrics[normalized_key] = color_value
+                new_palette.sectors[normalized_key] = color_value
 
         return new_palette
 
-    def refresh_category_colors(self, category: str) -> None:
+    def refresh_category_colors(self, category: ColorCategory | str) -> None:
         """Reassign colors for all items in a category using the correct theme.
-
-        This is useful for fixing palettes that may have been assigned incorrect
-        colors or to refresh colors after theme changes.
 
         Parameters
         ----------
-        category : str
-            The category to refresh: 'scenarios', 'model_years', or 'metrics'
-
-        Raises
-        ------
-        ValueError
-            If category is not a valid category name
-
-        Examples
-        --------
-        >>> palette.refresh_category_colors("metrics")
+        category : ColorCategory | str
+            The category to refresh.  The legacy string ``"metrics"``
+            refreshes both ``SECTOR`` and ``END_USE``.
         """
-        if category == "scenarios":
-            labels = list(self.scenarios.keys())
-            self.scenarios.clear()
-            for label in labels:
-                self.update(label, category="scenarios")
-        elif category == "model_years":
-            labels = list(self.model_years.keys())
-            # Sort model years as integers so earliest gets yellow, latest gets red
+        resolved = self._resolve_str_category(category)
+        if resolved is None:
+            return
+
+        target_dict, _ = self._get_target(resolved)
+        labels = list(target_dict.keys())
+        if resolved == ColorCategory.MODEL_YEAR:
             labels.sort(key=lambda x: int(x) if x.isdigit() else 0)
-            self.model_years.clear()
-            for label in labels:
-                self.update(label, category="model_years")
-        elif category == "metrics":
-            labels = list(self.metrics.keys())
-            self.metrics.clear()
-            for label in labels:
-                self.update(label, category="metrics")
-        else:
-            msg = (
-                f"Invalid category: {category}. Must be 'scenarios', 'model_years', or 'metrics'."
+        target_dict.clear()
+
+        # Reset the iterator for this category
+        theme = (
+            self.metric_theme
+            if resolved in (ColorCategory.SECTOR, ColorCategory.END_USE)
+            else (
+                self.scenario_theme
+                if resolved == ColorCategory.SCENARIO
+                else self.model_year_theme
             )
-            raise ValueError(msg)
+        )
+        new_iter = cycle(theme)
+        if resolved == ColorCategory.SCENARIO:
+            self._scenario_iterator = new_iter
+        elif resolved == ColorCategory.MODEL_YEAR:
+            self._model_year_iterator = new_iter
+        elif resolved == ColorCategory.SECTOR:
+            self._sector_iterator = new_iter
+        elif resolved == ColorCategory.END_USE:
+            self._end_use_iterator = new_iter
+
+        for label in labels:
+            self.update(label, category=resolved)
+
+    def merge_with_project_dimensions(
+        self,
+        scenarios: list[str] | None = None,
+        model_years: list[str] | None = None,
+        sectors: list[str] | None = None,
+        end_uses: list[str] | None = None,
+    ) -> None:
+        """Merge this palette with a project's actual dimensions.
+
+        For each category the logic is:
+
+        1. **Matched names** — entries present in both the palette and the
+           project keep their stored color.
+        2. **Reserve collection** — entries in the palette but *not* in the
+           project are set aside as reserves.  Their colors are returned to
+           the front of the available-color pool so they are reused before
+           cycling through the theme.
+        3. **New-name assignment** — names the project has but the palette
+           does not are assigned colors by drawing first from the reserve
+           pool, then from the theme (skipping colors already claimed by
+           matched entries).
+
+        After merging, the category dict is reordered so that project-active
+        entries come first (in the order given), followed by reserves.
+
+        Parameters
+        ----------
+        scenarios : list[str] | None
+            Scenario names present in the project.
+        model_years : list[str] | None
+            Model year labels (as strings) present in the project.
+        sectors : list[str] | None
+            Sector names present in the project.
+        end_uses : list[str] | None
+            End-use names present in the project.
+        """
+        _plan: list[tuple[list[str] | None, ColorCategory]] = [
+            (scenarios, ColorCategory.SCENARIO),
+            (model_years, ColorCategory.MODEL_YEAR),
+            (sectors, ColorCategory.SECTOR),
+            (end_uses, ColorCategory.END_USE),
+        ]
+
+        for project_names, cat in _plan:
+            if project_names is None:
+                continue
+            self._merge_category(project_names, cat)
+
+    def _get_theme(self, category: ColorCategory) -> list[str]:
+        """Return the color theme list for *category*."""
+        if category == ColorCategory.SCENARIO:
+            return self.scenario_theme
+        if category == ColorCategory.MODEL_YEAR:
+            return self.model_year_theme
+        return self.metric_theme
+
+    def _reset_iterator(self, category: ColorCategory, advance: int) -> None:
+        """Reset *category*'s iterator, advanced past *advance* entries."""
+        theme = self._get_theme(category)
+        new_iter = cycle(theme)
+        for _ in range(advance):
+            next(new_iter)
+        attr = {
+            ColorCategory.SCENARIO: "_scenario_iterator",
+            ColorCategory.MODEL_YEAR: "_model_year_iterator",
+            ColorCategory.SECTOR: "_sector_iterator",
+            ColorCategory.END_USE: "_end_use_iterator",
+        }[category]
+        setattr(self, attr, new_iter)
+
+    def _merge_category(self, project_names: list[str], category: ColorCategory) -> None:
+        """Merge a single category with the project's dimension names.
+
+        Order of operations:
+        1. Match names present in both palette and project — keep their colors.
+        2. Collect reserve entries (palette names not in the project).  Their
+           colors are returned to the front of the available-color pool so
+           they get reused before cycling through the theme.
+        3. Assign colors to new project names by drawing first from reserve
+           colors, then from the theme (skipping colors used by matches).
+        """
+        target_dict, _ = self._get_target(category)
+
+        # Normalize project names
+        normalized = [n.lower() for n in project_names]
+        project_set = set(normalized)
+
+        # 1. Matched names — in both palette and project
+        matched_colors: dict[str, str] = {}
+        for name in normalized:
+            if name in target_dict:
+                matched_colors[name] = target_dict[name]
+
+        used_colors = set(matched_colors.values())
+
+        # 2. Reserve entries — in palette but not in project.
+        #    Their colors go back into the available pool (front of the line).
+        reserve_entries: dict[str, str] = {
+            k: v for k, v in target_dict.items() if k not in project_set
+        }
+        reserve_colors = [v for v in reserve_entries.values() if v not in used_colors]
+
+        # 3. Build color iterator: reserve colors first, then theme (skipping used)
+        theme = self._get_theme(category)
+
+        def _available_color_iter() -> Any:
+            """Yield reserve colors first, then theme colors, skipping used."""
+            yield from reserve_colors
+            seen_skip: set[str] = set()
+            for color in cycle(theme):
+                if color in used_colors and color not in seen_skip:
+                    seen_skip.add(color)
+                    continue
+                yield color
+
+        color_iter = _available_color_iter()
+
+        # Assign colors to new (unmatched) project names
+        unmatched_names = [n for n in normalized if n not in target_dict]
+        new_assignments: dict[str, str] = {}
+        for name in unmatched_names:
+            new_assignments[name] = next(color_iter)
+
+        # Rebuild the category dict: active entries (in project order),
+        # then reserves
+        target_dict.clear()
+        for name in normalized:
+            if name in matched_colors:
+                target_dict[name] = matched_colors[name]
+            else:
+                target_dict[name] = new_assignments[name]
+        target_dict.update(reserve_entries)
+
+        self._reset_iterator(category, len(target_dict))
+
+        if category == ColorCategory.MODEL_YEAR:
+            self._sort_model_years()
 
     def get_display_items(
-        self, category: str | None = None
+        self, category: ColorCategory | str | None = None
     ) -> dict[str, list[tuple[str, str, str]]]:
         """Get palette items formatted for display with proper capitalization.
 
         Returns tuples of (display_label, lowercase_key, color) for each item.
-
-        Parameters
-        ----------
-        category : str | None, optional
-            Specific category to get: 'scenarios', 'model_years', or 'metrics'.
-            If None, returns all categories.
-
-        Returns
-        -------
-        dict[str, list[tuple[str, str, str]]]
-            Dictionary mapping category names to lists of (display_label, key, color) tuples.
-            The display_label is capitalized for presentation, while key is the lowercase
-            lookup key.
-
-        Examples
-        --------
-        >>> palette.get_display_items("metrics")
-        {'metrics': [('Industrial', 'industrial', 'rgb(95, 70, 144)'), ...]}
         """
-        result: dict[str, list[tuple[str, str, str]]] = {}
+        resolved = self._resolve_str_category(category) if category is not None else None
 
-        def format_items(items_dict: dict[str, str]) -> list[tuple[str, str, str]]:
-            """Convert dict items to display tuples."""
-            return [(key.capitalize(), key, color) for key, color in items_dict.items()]
+        def _fmt(d: dict[str, str]) -> list[tuple[str, str, str]]:
+            return [(k.capitalize(), k, c) for k, c in d.items()]
 
-        if category is None:
-            # Return all categories
-            if self.scenarios:
-                result["scenarios"] = format_items(self.scenarios)
-            if self.model_years:
-                result["model_years"] = format_items(self.model_years)
-            if self.metrics:
-                result["metrics"] = format_items(self.metrics)
-        elif category == "scenarios":
-            result["scenarios"] = format_items(self.scenarios)
-        elif category == "model_years":
-            result["model_years"] = format_items(self.model_years)
-        elif category == "metrics":
-            result["metrics"] = format_items(self.metrics)
-        else:
-            msg = (
-                f"Invalid category: {category}. Must be 'scenarios', 'model_years', or 'metrics'."
-            )
-            raise ValueError(msg)
+        groups: dict[str, dict[str, str]] = {
+            "scenarios": self.scenarios,
+            "model_years": self.model_years,
+            "sectors": self.sectors,
+            "end_uses": self.end_uses,
+        }
 
-        return result
+        if resolved is None:
+            return {name: _fmt(d) for name, d in groups.items() if d}
 
-    def to_dict(self) -> dict[str, dict[str, str]]:
+        _cat_to_group = {
+            ColorCategory.SCENARIO: "scenarios",
+            ColorCategory.MODEL_YEAR: "model_years",
+            ColorCategory.SECTOR: "sectors",
+            ColorCategory.END_USE: "end_uses",
+        }
+        group_name = _cat_to_group.get(resolved)
+        if group_name:
+            d = groups[group_name]
+            return {group_name: _fmt(d)} if d else {}
+
+        return {}
+
+    def to_dict(self) -> dict[str, Any]:
         """Serializes the internal palette to a structured dictionary.
 
+        Includes a ``"themes"`` key when the palette uses custom color
+        cycles (a "full" palette).  Minimal palettes omit it.
+
         Returns
         -------
-        dict[str, dict[str, str]]
-            A dictionary with 'scenarios', 'model_years', and 'metrics' keys,
-            each containing a mapping of labels to corresponding hex color strings.
+        dict[str, Any]
+            A dictionary with 'scenarios', 'model_years', 'sectors', and
+            'end_uses' keys, each mapping labels to hex color strings.
+            Optionally includes 'themes' for full palettes.
+        """
+        result: dict[str, Any] = {
+            "scenarios": self.scenarios.copy(),
+            "model_years": self.model_years.copy(),
+            "sectors": self.sectors.copy(),
+            "end_uses": self.end_uses.copy(),
+        }
+        if self.has_custom_themes:
+            result["themes"] = {
+                "scenarios": list(self.scenario_theme),
+                "model_years": list(self.model_year_theme),
+                "sectors": list(self.metric_theme),
+                "end_uses": list(self.metric_theme),
+            }
+        return result
+
+    def to_dict_legacy(self) -> dict[str, dict[str, str]]:
+        """Serializes the palette using the legacy 3-key format.
+
+        Sectors and end-uses are merged under a single ``"metrics"`` key.
+        Prefer :meth:`to_dict` for new code.
         """
         return {
             "scenarios": self.scenarios.copy(),
             "model_years": self.model_years.copy(),
-            "metrics": self.metrics.copy(),
+            "metrics": {**self.sectors, **self.end_uses},
         }
 
     def to_flat_dict(self) -> dict[str, str]:
@@ -500,7 +887,8 @@ class ColorPalette:
         result = {}
         result.update(self.scenarios)
         result.update(self.model_years)
-        result.update(self.metrics)
+        result.update(self.sectors)
+        result.update(self.end_uses)
         return result
 
     def move_item_up(self, items: MutableSequence[dict[str, Any]], index: int) -> bool:
@@ -562,7 +950,8 @@ class ColorPalette:
         Parameters
         ----------
         palette : dict[str, dict[str, str]]
-            Structured palette with 'scenarios', 'model_years', 'metrics' categories
+            Structured palette with 'scenarios', 'model_years', 'sectors',
+            and 'end_uses' categories (also accepts legacy 'metrics' key).
 
         Returns
         -------
@@ -575,17 +964,26 @@ class ColorPalette:
         category_display_names = {
             "scenarios": "Scenarios",
             "model_years": "Model Years",
-            "metrics": "Metrics",
+            "sectors": "Sectors",
+            "end_uses": "End Uses",
+            "metrics": "Sectors",  # legacy compat
         }
 
-        for category_name in ["scenarios", "model_years", "metrics"]:
+        for category_name in ["scenarios", "model_years", "sectors", "end_uses", "metrics"]:
             category_dict = palette.get(category_name, {})
             if category_dict:
                 items: list[dict[str, Any]] = []
                 for order, (label, color) in enumerate(category_dict.items()):
                     items.append({"label": label, "color": color, "order": order})
                 display_name = category_display_names.get(category_name, category_name)
-                result[display_name] = items
+                if display_name in result:
+                    # Append to existing group (e.g. legacy metrics merging into Sectors)
+                    offset = len(result[display_name])
+                    for item in items:
+                        item["order"] += offset
+                    result[display_name].extend(items)
+                else:
+                    result[display_name] = items
 
         return result
 
@@ -603,19 +1001,22 @@ class ColorPalette:
         Returns
         -------
         dict[str, dict[str, str]]
-            Structured palette with 'scenarios', 'model_years', 'metrics' categories
+            Structured palette with 'scenarios', 'model_years', 'sectors',
+            and 'end_uses' categories.
         """
         # Map display names back to internal names
         display_to_category = {
             "Scenarios": "scenarios",
             "Model Years": "model_years",
-            "Metrics": "metrics",
+            "Sectors": "sectors",
+            "End Uses": "end_uses",
         }
 
         palette: dict[str, dict[str, str]] = {
             "scenarios": {},
             "model_years": {},
-            "metrics": {},
+            "sectors": {},
+            "end_uses": {},
         }
 
         for display_name, items in grouped_items.items():

@@ -12,6 +12,7 @@ from loguru import logger
 from stride import Project
 from stride.models import CalculatedTableOverride
 from stride.project import list_valid_countries, list_valid_model_years, list_valid_weather_years
+from stride.ui.palette_utils import list_user_palettes, set_palette_priority
 from stride.dataset_download import (
     DatasetDownloadError,
     download_dataset,
@@ -665,7 +666,11 @@ def view(
     """
     from stride.api import APIClient
     from stride.ui.app import create_app, create_app_no_project, set_max_cached_projects_override
-    from stride.ui.tui import get_default_user_palette, load_user_palette
+    from stride.ui.palette_utils import (
+        get_default_user_palette,
+        get_palette_priority,
+        load_user_palette,
+    )
 
     # Apply max cached projects override if provided via CLI
     if max_cached_projects is not None:
@@ -677,11 +682,13 @@ def view(
     palette_name = None
 
     if user_palette:
-        # Explicit user palette override
+        # Explicit user palette override (always honored)
         palette_name = user_palette
     elif not no_default_palette:
-        # Check for default user palette
-        palette_name = get_default_user_palette()
+        # Check palette priority and default user palette
+        priority = get_palette_priority()
+        if priority == "user":
+            palette_name = get_default_user_palette()
 
     if palette_name:
         try:
@@ -910,67 +917,6 @@ def palette() -> None:
     """Palette commands"""
 
 
-_palette_view_epilog = """
-Examples:\n
-$ stride palette view test_project --project\n
-$ stride palette view my_palette --user\n
-"""
-
-
-@click.command(name="view", epilog=_palette_view_epilog)
-@click.argument("name", type=str)
-@click.option(
-    "--project",
-    "palette_type",
-    flag_value="project",
-    default=True,
-    help="View a project palette (default)",
-)
-@click.option(
-    "--user",
-    "palette_type",
-    flag_value="user",
-    help="View a user palette",
-)
-@click.pass_context
-def view_palette(ctx: click.Context, name: str, palette_type: str) -> None:
-    """View a color palette in an interactive TUI.
-
-    For project palettes, NAME should be the path to the project directory.
-    For user palettes, NAME should be the palette name.
-    """
-    from stride.ui.tui import launch_palette_viewer
-
-    if palette_type == "project":
-        project_path = Path(name)
-        if not project_path.exists():
-            logger.error(f"Project path does not exist: {project_path}")
-            ctx.exit(1)
-
-        palette_file = project_path / "project.json5"
-        if not palette_file.exists():
-            logger.error(f"Project config not found: {palette_file}")
-            ctx.exit(1)
-
-        # Load project config to get better grouping info
-        from stride.models import ProjectConfig
-
-        config = ProjectConfig.from_file(palette_file)
-
-        launch_palette_viewer(palette_file, palette_type="project", project_config=config)
-    else:
-        from stride.ui.tui import get_user_palette_dir
-
-        palette_dir = get_user_palette_dir()
-        palette_file = palette_dir / f"{name}.json"
-
-        if not palette_file.exists():
-            logger.error(f"User palette not found: {palette_file}")
-            ctx.exit(1)
-
-        launch_palette_viewer(palette_file, palette_type="user")
-
-
 _palette_init_epilog = """
 Examples:\n
 # Create an empty palette (for manual population)\n
@@ -1035,13 +981,13 @@ def init_palette(  # noqa: C901
 
     --from-user: Copy from an existing user palette in ~/.stride/palettes/
 
-    (No source): Create an empty palette for manual population via TUI
+    (No source): Create an empty palette for manual population via the Settings UI
 
     The palette can be saved to user space (default) or embedded in a project.
     """
     from stride.api import APIClient
-    from stride.ui.palette import ColorPalette
-    from stride.ui.tui import load_user_palette, save_user_palette
+    from stride.ui.palette import ColorCategory, ColorPalette
+    from stride.ui.palette_utils import load_user_palette, save_user_palette
 
     # Validate that at most one source is specified
     sources = [from_project, from_user]
@@ -1063,8 +1009,8 @@ def init_palette(  # noqa: C901
     if source_count == 0:
         # Create an empty palette with structured categories
         print(f"Creating empty palette: {name}")
-        print("Use 'stride palette view {name} --user' to add labels interactively")
-        palette_dict = {"scenarios": {}, "model_years": {}, "metrics": {}}
+        print("Edit colors in the Settings panel after launching: stride view")
+        palette_dict = {"scenarios": {}, "model_years": {}, "sectors": {}, "end_uses": {}}
     elif from_project:
         # Get labels from project configuration and database
         project_path = from_project
@@ -1078,14 +1024,14 @@ def init_palette(  # noqa: C901
         scenario_names = [scenario.name for scenario in project.config.scenarios]
         print(f"Found {len(scenario_names)} scenarios from config")
         for label in scenario_names:
-            palette.update(label, category="scenarios")
+            palette.update(label, category=ColorCategory.SCENARIO)
 
         # Get model years from ProjectConfig (fast lookup)
         model_years = project.config.list_model_years()
         year_labels = [str(year) for year in model_years]
         print(f"Found {len(year_labels)} model years from config")
         for label in year_labels:
-            palette.update(label, category="model_years")
+            palette.update(label, category=ColorCategory.MODEL_YEAR)
 
         # Get sectors and end uses from database (requires query)
         api_client = APIClient(project)
@@ -1093,9 +1039,11 @@ def init_palette(  # noqa: C901
         end_uses = api_client.get_unique_end_uses()
         print(f"Found {len(sectors)} sectors and {len(end_uses)} end uses from database")
 
-        # Add sectors and end uses to the metrics category
-        for label in sectors + end_uses:
-            palette.update(label, category="metrics")
+        # Add sectors and end uses to their respective categories
+        for label in sectors:
+            palette.update(label, category=ColorCategory.SECTOR)
+        for label in end_uses:
+            palette.update(label, category=ColorCategory.END_USE)
 
         palette_dict = palette.to_dict()
 
@@ -1116,7 +1064,7 @@ def init_palette(  # noqa: C901
         saved_path = save_user_palette(name, palette_dict)
         logger.info(f"Created user palette '{name}' at {saved_path}")
         print(f"\nCreated user palette: {saved_path}")
-        print(f"View with: stride palette view {name} --user")
+        print("Edit colors in the Settings panel after launching: stride view")
     else:
         # Save to project palette
         if not project_path:
@@ -1127,7 +1075,7 @@ def init_palette(  # noqa: C901
         project.persist()
         logger.info(f"Created project palette in {project_path / 'project.json5'}")
         print(f"\nCreated project palette in: {project_path / 'project.json5'}")
-        print(f"View with: stride palette view {project_path} --project")
+        print("Edit colors in the Settings panel after launching: stride view")
 
 
 @click.command(name="list")
@@ -1147,8 +1095,6 @@ def init_palette(  # noqa: C901
 def list_palettes(palette_type: str) -> None:
     """List available color palettes."""
     if palette_type == "user":
-        from stride.ui.tui import list_user_palettes
-
         palettes = list_user_palettes()
         if not palettes:
             print("No user palettes found.")
@@ -1160,7 +1106,7 @@ def list_palettes(palette_type: str) -> None:
             for palette_path in palettes:
                 print(f"  - {palette_path.stem} ({palette_path})")
     else:
-        print("To view a project palette, use: stride palette view <project_path> --project")
+        print("Project palettes are stored in project.json5. Launch the dashboard to view.")
 
 
 @click.command(name="set-default")
@@ -1180,7 +1126,7 @@ def set_default_palette(ctx: click.Context, palette_name: str | None) -> None:
     Clear the default palette:
     $ stride palette set-default
     """
-    from stride.ui.tui import set_default_user_palette
+    from stride.ui.palette_utils import set_default_user_palette
 
     try:
         set_default_user_palette(palette_name)
@@ -1202,7 +1148,7 @@ def get_default_palette() -> None:
 
     $ stride palette get-default
     """
-    from stride.ui.tui import get_default_user_palette
+    from stride.ui.palette_utils import get_default_user_palette
 
     default = get_default_user_palette()
     if default:
@@ -1210,6 +1156,48 @@ def get_default_palette() -> None:
     else:
         print("No default user palette set.")
         print("Set one with: stride palette set-default <palette-name>")
+
+
+@click.command(name="set-priority")
+@click.argument("priority", type=click.Choice(["user", "project"]))
+def set_priority(priority: str) -> None:
+    """Set which palette takes priority when launching the dashboard.
+
+    When set to "user", the default user palette (if set) will override the
+    project palette on dashboard launch. When set to "project", the project
+    palette is always used unless --user-palette is specified.
+
+    Examples:
+
+    $ stride palette set-priority user
+
+    $ stride palette set-priority project
+    """
+    set_palette_priority(priority)
+    if priority == "user":
+        print("Palette priority set to: user")
+        print("Default user palette (if set) will override project palette on launch.")
+    else:
+        print("Palette priority set to: project")
+        print("Project palette will always be used unless --user-palette is specified.")
+
+
+@click.command(name="get-priority")
+def get_priority() -> None:
+    """Show the current palette priority setting.
+
+    Examples:
+
+    $ stride palette get-priority
+    """
+    from stride.ui.palette_utils import get_palette_priority
+
+    priority = get_palette_priority()
+    print(f"Palette priority: {priority}")
+    if priority == "user":
+        print("Default user palette (if set) will override project palette on launch.")
+    else:
+        print("Project palette will always be used unless --user-palette is specified.")
 
 
 _palette_refresh_epilog = """
@@ -1238,7 +1226,7 @@ def refresh_palette(ctx: click.Context, project_path: Path) -> None:
     print("\nBefore refresh:")
     print(f"  Scenarios: {len(palette.scenarios)}")
     print(f"  Model Years: {len(palette.model_years)}")
-    print(f"  Metrics: {len(palette.metrics)}")
+    print(f"  Sectors: {len(palette.sectors)}, End Uses: {len(palette.end_uses)}")
 
     # Refresh colors
     project.refresh_palette_colors()
@@ -1247,7 +1235,7 @@ def refresh_palette(ctx: click.Context, project_path: Path) -> None:
     print("\nAfter refresh:")
     print(f"  Scenarios: {len(palette.scenarios)} (Bold theme)")
     print(f"  Model Years: {len(palette.model_years)} (YlOrRd theme)")
-    print(f"  Metrics: {len(palette.metrics)} (Prism theme)")
+    print(f"  Sectors: {len(palette.sectors)}, End Uses: {len(palette.end_uses)}")
     print("\nPalette colors refreshed and saved!")
 
 
@@ -1304,9 +1292,10 @@ calculated_tables.add_command(show_calculated_table)
 calculated_tables.add_command(override_calculated_table)
 calculated_tables.add_command(export_calculated_table)
 calculated_tables.add_command(remove_calculated_table_override)
-palette.add_command(view_palette)
 palette.add_command(init_palette)
 palette.add_command(list_palettes)
 palette.add_command(set_default_palette)
 palette.add_command(get_default_palette)
+palette.add_command(set_priority)
+palette.add_command(get_priority)
 palette.add_command(refresh_palette)

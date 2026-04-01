@@ -14,11 +14,14 @@ Create consistent colors for visualizations.
 
 ## Preview a Palette
 
+Launch the dashboard and open the Settings panel to preview and edit palette
+colors:
+
 ```{eval-rst}
 
 .. code-block:: console
 
-   $ stride palette view my_project
+   $ stride view my_project
 ```
 
 ## Create a Custom Palette

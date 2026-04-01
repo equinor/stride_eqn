@@ -3,13 +3,16 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import plotly.graph_objects as go
 
+from stride.ui.palette import ColorCategory
+
 from .utils import (
     DEFAULT_BAR_COLOR,
+    DEFAULT_PLOTLY_TEMPLATE,
     TRANSPARENT,
     create_time_series_area_traces,
     create_time_series_line_traces,
+    get_axis_style,
     get_hoverlabel_style,
-    get_plotly_template,
     get_time_series_breakdown_info,
 )
 
@@ -23,7 +26,7 @@ def grouped_single_bars(
     color_generator: "ColorManager",
     use_color_manager: bool = True,
     fixed_color: str | None = None,
-    template: str = "plotly_dark",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
 ) -> go.Figure:
     """
     Create a bar plot with 2 levels of x axis.
@@ -41,7 +44,7 @@ def grouped_single_bars(
     fixed_color : str | None, optional
         Fixed color to use for all bars (overrides use_color_manager), by default None
     template : str, optional
-        Plotly template name for theme-aware styling, by default "plotly_dark"
+        Plotly template name for theme-aware styling
 
     Returns
     -------
@@ -83,8 +86,10 @@ def grouped_single_bars(
             )
         )
 
+    axis = get_axis_style(template)
+
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin_b=0,
@@ -94,6 +99,8 @@ def grouped_single_bars(
         barmode="group",
         hoverlabel=hoverlabel_style,
         hovermode="x unified",
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
+        yaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
     )
 
     return fig
@@ -104,7 +111,8 @@ def grouped_multi_bars(
     color_generator: "ColorManager",
     x_group: str = "scenario",
     y_group: str = "end_use",
-    template: str = "plotly_dark",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Create grouped and multi-level bar chart.
@@ -120,7 +128,7 @@ def grouped_multi_bars(
     y_group : str, optional
         Secondary grouping column (creates stacked bars), by default "end_use"
     template : str, optional
-        Plotly template name for theme-aware styling, by default "plotly_dark"
+        Plotly template name for theme-aware styling
 
     Returns
     -------
@@ -150,7 +158,9 @@ def grouped_multi_bars(
                 go.Bar(
                     x=df_subset["year"].astype(str),
                     y=df_subset["value"],
-                    marker_color=color_generator.get_color(y_value),
+                    marker_color=color_generator.get_color(
+                        y_value, breakdown_type or ColorCategory.SECTOR
+                    ),
                     name=y_value,
                     offsetgroup=x_value,
                     legendgroup=y_value,
@@ -182,7 +192,7 @@ def grouped_multi_bars(
                 legendgrouptitle_text="Scenarios" if not scenario_title_added else None,
                 legendrank=2,
                 marker=dict(
-                    color=color_generator.get_color(x_value),
+                    color=color_generator.get_color(x_value, ColorCategory.SCENARIO),
                     pattern_shape="/",
                     pattern_solidity=0.3,
                 ),
@@ -195,9 +205,11 @@ def grouped_multi_bars(
         if not scenario_title_added:
             scenario_title_added = True
 
+    axis = get_axis_style(template)
+
     fig = go.Figure(data=bars)
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin_b=0,
@@ -205,7 +217,12 @@ def grouped_multi_bars(
         margin_l=20,
         margin_r=20,
         barmode="stack",
-        yaxis=dict(range=[-indicator_height * 4, max_value * 1.1]),
+        yaxis=dict(
+            range=[-indicator_height * 4, max_value * 1.1],
+            gridcolor=axis["grid_color"],
+            linecolor=axis["axis_color"],
+        ),
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
         legend=dict(
             itemclick="toggle",  # Single click toggles sectors (or scenario indicators)
             itemdoubleclick=False,  # Disabled - can't handle 2D toggling properly
@@ -225,7 +242,8 @@ def grouped_stacked_bars(
     stack_col: str = "metric",
     value_col: str = "demand",
     show_scenario_indicators: bool = True,
-    template: str = "plotly_dark",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Create grouped and stacked bar chart.
@@ -250,7 +268,7 @@ def grouped_stacked_bars(
     show_scenario_indicators : bool, optional
         Whether to show hatched scenario indicator bars, by default True
     template : str, optional
-        Plotly template name for theme-aware styling, by default "plotly_dark"
+        Plotly template name for theme-aware styling
 
     Returns
     -------
@@ -291,7 +309,9 @@ def grouped_stacked_bars(
                     legendgrouptitle_text=stack_col.replace("_", " ").title()
                     if not stack_group_title_added
                     else None,
-                    marker_color=color_generator.get_color(stack_cat),
+                    marker_color=color_generator.get_color(
+                        stack_cat, breakdown_type or ColorCategory.SECTOR
+                    ),
                     offsetgroup=group,
                     legendrank=1,
                     showlegend=stack_cat not in added_stack_legend,
@@ -317,7 +337,7 @@ def grouped_stacked_bars(
                     legendgrouptitle_text="Scenarios" if not scenario_title_added else None,
                     legendrank=2,
                     marker=dict(
-                        color=color_generator.get_color(group),
+                        color=color_generator.get_color(group, ColorCategory.SCENARIO),
                         pattern_shape="/",
                         pattern_solidity=0.3,
                     ),
@@ -333,8 +353,10 @@ def grouped_stacked_bars(
     # Adjust y-axis range based on whether scenario indicators are shown
     y_min = -indicator_height * 4 if show_scenario_indicators else 0
 
+    axis = get_axis_style(template)
+
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin_b=50,
@@ -342,7 +364,12 @@ def grouped_stacked_bars(
         margin_l=20,
         margin_r=20,
         barmode="stack",
-        yaxis=dict(range=[y_min, max_value * 1.1]),
+        yaxis=dict(
+            range=[y_min, max_value * 1.1],
+            gridcolor=axis["grid_color"],
+            linecolor=axis["axis_color"],
+        ),
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
         legend=dict(
             itemclick="toggle",  # Single click toggles sectors (or scenario indicators)
             itemdoubleclick=False,  # Disabled - can't handle 2D toggling properly
@@ -359,7 +386,8 @@ def time_series(
     color_generator: "ColorManager",
     group_by: str | None = None,
     chart_type: str = "Line",
-    template: str = "plotly_dark",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
+    breakdown_type: ColorCategory | None = None,
 ) -> go.Figure:
     """
     Plot time series data for multiple years of a single scenario.
@@ -376,7 +404,7 @@ def time_series(
     chart_type : str, optional
         "Line" or "Area" chart type, by default "Line"
     template : str, optional
-        Plotly template name for theme-aware styling, by default "plotly_dark"
+        Plotly template name for theme-aware styling
 
     Returns
     -------
@@ -404,21 +432,29 @@ def time_series(
     else:
         # Create traces based on chart type
         if chart_type == "Area":
-            traces = create_time_series_area_traces(df, color_generator, breakdown_info)
+            traces = create_time_series_area_traces(
+                df, color_generator, breakdown_info, breakdown_type
+            )
         else:  # Line chart
-            traces = create_time_series_line_traces(df, color_generator, breakdown_info)
+            traces = create_time_series_line_traces(
+                df, color_generator, breakdown_info, breakdown_type
+            )
 
         # Add all traces to figure
         for trace in traces:
             fig.add_trace(trace)
 
+    axis = get_axis_style(template)
+
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin=dict(l=20, r=20, t=20, b=40),
         xaxis_title="Time Period",
         yaxis_title="Average Power Demand (MW)",
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
+        yaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
         legend=dict(orientation="v", yanchor="top", y=1, xanchor="left", x=1.02),
         hoverlabel=hoverlabel_style,
         hovermode="x unified",
@@ -428,7 +464,7 @@ def time_series(
 
 
 def demand_curve(
-    df: pd.DataFrame, color_generator: "ColorManager", template: str = "plotly_dark"
+    df: pd.DataFrame, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE
 ) -> go.Figure:
     """
     Create a load duration curve plot.
@@ -441,7 +477,7 @@ def demand_curve(
     color_generator : Callable[[str], str]
         Color generator function
     template : str, optional
-        Plotly template name for theme-aware styling, by default "plotly_dark"
+        Plotly template name for theme-aware styling
 
     Returns
     -------
@@ -459,14 +495,16 @@ def demand_curve(
                 x=df.index.values,
                 y=df[scenario],
                 mode="lines",
-                marker=dict(color=color_generator.get_color(scenario)),
+                marker=dict(color=color_generator.get_color(scenario, ColorCategory.SCENARIO)),
                 name=scenario,
                 showlegend=True,
                 hovertemplate="%{fullData.name}: %{y:.2f}<extra></extra>",
             )
         )
+    axis = get_axis_style(template)
+
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin_b=0,
@@ -474,7 +512,12 @@ def demand_curve(
         margin_l=20,
         margin_r=20,
         barmode="stack",
-        yaxis=dict(title="Power Demand (MW)"),
+        yaxis=dict(
+            title="Power Demand (MW)",
+            gridcolor=axis["grid_color"],
+            linecolor=axis["axis_color"],
+        ),
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
         hoverlabel=hoverlabel_style,
         hovermode="x unified",
     )
@@ -486,6 +529,7 @@ def area_plot(
     color_generator: "ColorManager",
     scenario_name: str,
     metric: str = "demand",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
 ) -> go.Figure:
     """
     Create a stacked area plot for a single scenario.
@@ -514,21 +558,25 @@ def area_plot(
                 x=end_use_df["year"],
                 y=end_use_df[metric],
                 mode="lines",
-                line=dict(color=color_generator.get_color(end_use)),
+                line=dict(color=color_generator.get_color(end_use, ColorCategory.END_USE)),
                 showlegend=False,
                 stackgroup="one",
             )
         )
     fig.update_layout(title=scenario_name)
 
+    axis = get_axis_style(template)
+
     fig.update_layout(
-        template=get_plotly_template(),
+        template=template,
         plot_bgcolor=TRANSPARENT,
         paper_bgcolor=TRANSPARENT,
         margin_b=50,
         margin_t=50,
         margin_l=10,
         margin_r=10,
+        xaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
+        yaxis=dict(gridcolor=axis["grid_color"], linecolor=axis["axis_color"]),
     )
 
     return fig

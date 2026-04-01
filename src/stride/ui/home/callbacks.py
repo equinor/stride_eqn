@@ -13,7 +13,8 @@ from stride.ui.plotting.utils import (
     get_hoverlabel_style,
     get_warning_annotation_style,
 )
-from stride.ui.settings.layout import get_temp_color_edits
+from stride.ui.palette import ColorCategory
+from stride.ui.settings.layout import get_temp_edits_for_category
 
 if TYPE_CHECKING:
     from stride.api import APIClient
@@ -109,6 +110,13 @@ def update_home_scenario_comparison(  # noqa: C901
     try:
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
 
         # Get the main consumption data
         df = data_handler.get_annual_electricity_consumption(
@@ -120,7 +128,9 @@ def update_home_scenario_comparison(  # noqa: C901
         # Create the main plot
         if breakdown_value:
             stack_col = "metric" if breakdown_value == "End Use" else str(breakdown_value)
-            fig = plotter.grouped_stacked_bars(df, stack_col=stack_col.lower(), value_col="value")
+            fig = plotter.grouped_stacked_bars(
+                df, stack_col=stack_col.lower(), value_col="value", breakdown_type=breakdown_type
+            )
         else:
             fig = plotter.grouped_single_bars(df, "scenario")
 
@@ -135,7 +145,9 @@ def update_home_scenario_comparison(  # noqa: C901
 
                     if not secondary_df.empty:
                         # Get scenario color from color manager
-                        scenario_color = plotter.color_manager.get_color(scenario)
+                        scenario_color = plotter.color_manager.get_color(
+                            scenario, ColorCategory.SCENARIO
+                        )
 
                         # Add background line when no breakdown (total only)
                         if breakdown_value is None:
@@ -273,6 +285,13 @@ def update_home_sector_breakdown(  # noqa: C901
     try:
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
 
         # Get the peak demand data
         df = data_handler.get_annual_peak_demand(
@@ -285,7 +304,9 @@ def update_home_sector_breakdown(  # noqa: C901
         if breakdown_value:
             stack_col = "metric" if breakdown_value == "End Use" else str(breakdown_value)
 
-            fig = plotter.grouped_stacked_bars(df, stack_col=stack_col.lower(), value_col="value")
+            fig = plotter.grouped_stacked_bars(
+                df, stack_col=stack_col.lower(), value_col="value", breakdown_type=breakdown_type
+            )
         else:
             fig = plotter.grouped_single_bars(df, "scenario")
 
@@ -300,7 +321,9 @@ def update_home_sector_breakdown(  # noqa: C901
 
                     if not secondary_df.empty:
                         # Get scenario color from color manager
-                        scenario_color = plotter.color_manager.get_color(scenario)
+                        scenario_color = plotter.color_manager.get_color(
+                            scenario, ColorCategory.SCENARIO
+                        )
 
                         # Add background line when no breakdown (total only)
                         if breakdown_value is None:
@@ -475,6 +498,13 @@ def update_home_scenario_timeseries(  # noqa: C901
     try:
         # Convert "None" to None
         breakdown_value = None if breakdown == "None" else breakdown
+        breakdown_type = (
+            ColorCategory.END_USE
+            if breakdown_value == "End Use"
+            else ColorCategory.SECTOR
+            if breakdown_value == "Sector"
+            else None
+        )
 
         # Get the consumption data for all scenarios
         df = data_handler.get_annual_electricity_consumption(
@@ -557,7 +587,10 @@ def update_home_scenario_timeseries(  # noqa: C901
                                                 name=category,
                                                 mode="lines",
                                                 line=dict(
-                                                    color=plotter.color_manager.get_color(category)
+                                                    color=plotter.color_manager.get_color(
+                                                        category,
+                                                        breakdown_type or ColorCategory.SECTOR,
+                                                    )
                                                 ),
                                                 fill="tonexty" if j > 0 else "tozeroy",
                                                 stackgroup="one",
@@ -579,7 +612,10 @@ def update_home_scenario_timeseries(  # noqa: C901
                                                 name=category,
                                                 mode="lines+markers",
                                                 line=dict(
-                                                    color=plotter.color_manager.get_color(category)
+                                                    color=plotter.color_manager.get_color(
+                                                        category,
+                                                        breakdown_type or ColorCategory.SECTOR,
+                                                    )
                                                 ),
                                                 showlegend=show_legend,
                                                 legendgroup=category,
@@ -607,7 +643,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                             name=scenario,
                                             mode="lines",
                                             line=dict(
-                                                color=plotter.color_manager.get_color(scenario)
+                                                color=plotter.color_manager.get_color(
+                                                    scenario, ColorCategory.SCENARIO
+                                                )
                                             ),
                                             fill="tozeroy",
                                             showlegend=False,
@@ -627,7 +665,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                                             name=scenario,
                                             mode="lines+markers",
                                             line=dict(
-                                                color=plotter.color_manager.get_color(scenario)
+                                                color=plotter.color_manager.get_color(
+                                                    scenario, ColorCategory.SCENARIO
+                                                )
                                             ),
                                             showlegend=False,
                                             hovertemplate="Year: %{x}<br>"
@@ -647,7 +687,9 @@ def update_home_scenario_timeseries(  # noqa: C901
                         if not scenario_secondary.empty:
                             row = (idx // cols) + 1
                             col = (idx % cols) + 1
-                            scenario_color = plotter.color_manager.get_color(scenario)
+                            scenario_color = plotter.color_manager.get_color(
+                                scenario, ColorCategory.SCENARIO
+                            )
 
                             fig.add_trace(
                                 go.Scatter(
@@ -703,6 +745,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                         chart_type=chart_type,
                         group_by=stack_col.lower() if breakdown_value else None,
                         value_col="value",
+                        breakdown_type=breakdown_type,
                     )
                     warning_style = get_warning_annotation_style(plotter.get_template())
                     fig.add_annotation(
@@ -724,6 +767,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                     chart_type=chart_type,
                     group_by=stack_col.lower() if breakdown_value else None,
                     value_col="value",
+                    breakdown_type=breakdown_type,
                 )
                 error_style = get_error_annotation_style(plotter.get_template())
                 fig.add_annotation(
@@ -745,6 +789,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                     chart_type=chart_type,
                     group_by=stack_col.lower() if breakdown_value else None,
                     value_col="value",
+                    breakdown_type=breakdown_type,
                 )
                 error_msg = str(e)
                 if "does not exist" in error_msg.lower() or "not found" in error_msg.lower():
@@ -771,6 +816,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                 chart_type=chart_type,
                 group_by=stack_col.lower() if breakdown_value else None,
                 value_col="value",
+                breakdown_type=breakdown_type,
             )
 
         return fig
@@ -861,8 +907,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -872,13 +918,13 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -953,8 +999,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -964,13 +1010,13 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -1045,8 +1091,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -1056,13 +1102,13 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3
@@ -1137,8 +1183,8 @@ def register_home_callbacks(  # noqa: C901
         if current_color_manager is None:
             return [{}] * len(button_ids)
 
-        # Get temporary color edits
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         styles = []
         selected_scenarios = selected_scenarios or []
@@ -1148,13 +1194,13 @@ def register_home_callbacks(  # noqa: C901
             is_selected = scenario in selected_scenarios
 
             # Check if there's a temporary edit for this scenario
-            if scenario in temp_edits:
-                base_color = temp_edits[scenario]
+            if scenario in scenario_edits:
+                base_color = scenario_edits[scenario]
                 # Temp edits are stored as hex, convert to rgba
                 if base_color.startswith("#"):
                     base_color = current_color_manager._hex_to_rgba_str(base_color)
             else:
-                base_color = current_color_manager.get_color(scenario)
+                base_color = current_color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = current_color_manager._str_to_rgba(base_color)
 
             alpha = 0.9 if is_selected else 0.3

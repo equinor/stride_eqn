@@ -16,8 +16,8 @@ client = APIClient(project)
 ## Query Multiple Scenarios
 
 ```python
-baseline = client.get_total_consumption(scenario="baseline")
-high_growth = client.get_total_consumption(scenario="high_growth")
+baseline = client.get_annual_electricity_consumption(scenarios=["baseline"])
+high_growth = client.get_annual_electricity_consumption(scenarios=["high_growth"])
 ```
 
 ## Calculate Differences
@@ -27,7 +27,7 @@ import pandas as pd
 
 comparison = pd.merge(
     baseline, high_growth,
-    on=["geography", "model_year"],
+    on=["year"],
     suffixes=("_baseline", "_high_growth")
 )
 comparison["difference"] = (
@@ -45,9 +45,8 @@ import plotly.express as px
 
 fig = px.scatter(
     comparison,
-    x="model_year",
-    y="pct_change",
-    color="geography",
+    x="year",
+    y="pct_difference",
     title="Consumption Change: High Growth vs Baseline"
 )
 fig.show()

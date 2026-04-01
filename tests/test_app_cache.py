@@ -483,17 +483,17 @@ class TestRefreshDropdownLogic:
 
 
 class TestConfigMaxCachedProjects:
-    """Tests for get_max_cached_projects / set_max_cached_projects in tui.py."""
+    """Tests for get_max_cached_projects / set_max_cached_projects in config.py."""
 
     def test_round_trip(self, tmp_path: Path) -> None:
         """set_max_cached_projects(n) -> get_max_cached_projects() should return n."""
-        from stride.ui.tui import (
+        from stride.config import (
             get_max_cached_projects as tui_get,
             set_max_cached_projects as tui_set,
         )
 
         config_file = tmp_path / "config.json"
-        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
             # Initially no config file
             assert tui_get() is None
 
@@ -507,13 +507,13 @@ class TestConfigMaxCachedProjects:
 
     def test_set_clamps_to_range(self, tmp_path: Path) -> None:
         """set_max_cached_projects should clamp values to [1, 10]."""
-        from stride.ui.tui import (
+        from stride.config import (
             get_max_cached_projects as tui_get,
             set_max_cached_projects as tui_set,
         )
 
         config_file = tmp_path / "config.json"
-        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
             tui_set(0)
             assert tui_get() == 1
 
@@ -524,12 +524,12 @@ class TestConfigMaxCachedProjects:
         """set_max_cached_projects should not clobber other config keys."""
         import json
 
-        from stride.ui.tui import set_max_cached_projects as tui_set
+        from stride.config import set_max_cached_projects as tui_set
 
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"default_user_palette": "my_palette"}))
 
-        with patch("stride.ui.tui.get_stride_config_path", return_value=config_file):
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
             tui_set(7)
 
         saved = json.loads(config_file.read_text())
