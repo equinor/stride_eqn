@@ -135,40 +135,52 @@ body {
     color: var(--text-primary) !important;
 }
 
-/* Sidebar dropdown theming - sidebar uses dark styling in light mode */
+/* Sidebar dropdown theming - use light theme variables to match sidebar background */
+.light-theme #sidebar .dash-dropdown {
+    --Dash-Fill-Inverse-Strong: var(--bg-primary);
+    --Dash-Text-Strong: var(--text-primary);
+    --Dash-Text-Weak: var(--text-secondary);
+    --Dash-Text-Disabled: var(--text-muted);
+    --Dash-Stroke-Strong: var(--border-color);
+    --Dash-Shading-Strong: var(--border-hover);
+    --Dash-Shading-Weak: var(--border-color);
+    --Dash-Fill-Interactive-Strong: var(--accent-primary);
+    --Dash-Fill-Interactive-Weak: var(--bg-hover);
+}
+
 .light-theme #sidebar .dash-dropdown-trigger {
-    background-color: #3a3a3a !important;
-    border-color: #404040 !important;
+    background-color: var(--bg-primary) !important;
+    border-color: var(--border-color) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-value {
-    color: #e0e0e0 !important;
+    color: var(--text-primary) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-placeholder {
-    color: #808080 !important;
+    color: var(--text-muted) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-content {
-    background-color: #3a3a3a !important;
-    border-color: #404040 !important;
+    background-color: var(--bg-primary) !important;
+    border-color: var(--border-color) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-option {
-    background-color: #3a3a3a !important;
-    color: #e0e0e0 !important;
+    background-color: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-option:hover {
-    background-color: #404040 !important;
+    background-color: var(--bg-hover) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-trigger-icon {
-    color: #808080 !important;
+    color: var(--text-muted) !important;
 }
 
 .light-theme #sidebar .dash-dropdown-search {
-    color: #e0e0e0 !important;
+    color: var(--text-primary) !important;
 }
 
 /* Sidebar settings button - match nav tabs */

@@ -477,7 +477,7 @@ def create_app(  # noqa: C901
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
@@ -1416,7 +1416,7 @@ def create_app_no_project(
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
