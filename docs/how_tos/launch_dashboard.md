@@ -52,8 +52,7 @@ Projects can be loaded and color palettes can be managed from the sidebar.
 
 ## Configure Max Cached Projects
 
-By default, STRIDE keeps up to 3 projects open simultaneously. Each open project holds a DuckDB connection,
-and on BlobFuse2 FUSE mounts too many concurrent connections can cause errors.
+By default, STRIDE keeps up to 3 projects open simultaneously. Each open project holds a DuckDB connection, and too many concurrent connections can cause errors.
 
 You can configure this limit via three methods (highest priority first):
 
