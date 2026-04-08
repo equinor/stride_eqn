@@ -562,7 +562,12 @@ class TestMergeWithProjectDimensions:
     def test_matched_names_keep_colors(self) -> None:
         """Entries in both palette and project keep their stored color."""
         palette = ColorPalette.from_dict(
-            {"scenarios": {"baseline": "#AA0000", "high": "#BB0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+            {
+                "scenarios": {"baseline": "#AA0000", "high": "#BB0000"},
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
         )
         palette.merge_with_project_dimensions(scenarios=["baseline", "high"])
         assert palette.scenarios["baseline"] == "#AA0000"
@@ -571,7 +576,12 @@ class TestMergeWithProjectDimensions:
     def test_new_project_names_get_colors(self) -> None:
         """Names in the project but not in the palette get auto-assigned colors."""
         palette = ColorPalette.from_dict(
-            {"scenarios": {"baseline": "#AA0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
         )
         palette.merge_with_project_dimensions(scenarios=["baseline", "new_scenario"])
         assert palette.scenarios["baseline"] == "#AA0000"
@@ -681,7 +691,12 @@ class TestMergeWithProjectDimensions:
     def test_case_insensitive_matching(self) -> None:
         """Merge normalizes names to lowercase for matching."""
         palette = ColorPalette.from_dict(
-            {"scenarios": {"baseline": "#AA0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
         )
         palette.merge_with_project_dimensions(scenarios=["Baseline"])
         assert palette.scenarios["baseline"] == "#AA0000"

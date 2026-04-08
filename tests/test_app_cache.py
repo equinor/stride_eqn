@@ -27,6 +27,7 @@ from stride.ui import app as app_module
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_project(name: str = "proj") -> MagicMock:
     """Return a lightweight mock that behaves like a Project."""
     proj = MagicMock()
@@ -364,11 +365,7 @@ class TestRefreshDropdownLogic:
         for proj in recent:
             project_id = proj.get("project_id", "")
             proj_path = proj.get("path", "")
-            if (
-                project_id
-                and project_id not in seen_project_ids
-                and Path(proj_path).exists()
-            ):
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
                 dropdown_options.append(
                     {"label": proj.get("name", project_id), "value": proj_path}
                 )
@@ -387,11 +384,7 @@ class TestRefreshDropdownLogic:
         for proj in recent:
             project_id = proj.get("project_id", "")
             proj_path = proj.get("path", "")
-            if (
-                project_id
-                and project_id not in seen_project_ids
-                and Path(proj_path).exists()
-            ):
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
                 dropdown_options.append(
                     {"label": proj.get("name", project_id), "value": proj_path}
                 )
@@ -443,9 +436,7 @@ class TestRefreshDropdownLogic:
         p = tmp_path / "other"
         p.mkdir()
         recent = [{"project_id": "other", "path": str(p), "name": "Other"}]
-        result = self._build_dropdown_options_with_project(
-            "Current", "/current/path", recent
-        )
+        result = self._build_dropdown_options_with_project("Current", "/current/path", recent)
         assert result[0] == {"label": "Current", "value": "/current/path"}
         assert len(result) == 2
 
@@ -454,9 +445,7 @@ class TestRefreshDropdownLogic:
         p = tmp_path / "cur"
         p.mkdir()
         recent = [{"project_id": "Current", "path": str(p), "name": "Current"}]
-        result = self._build_dropdown_options_with_project(
-            "Current", str(p), recent
-        )
+        result = self._build_dropdown_options_with_project("Current", str(p), recent)
         # Only one entry because deduplication by project_id
         assert len(result) == 1
 
@@ -472,9 +461,7 @@ class TestRefreshDropdownLogic:
             {"project_id": f"P{i}", "path": str(d), "name": f"Project {i}"}
             for i, d in enumerate(dirs)
         ]
-        result = self._build_dropdown_options_with_project(
-            "Current", "/current", recent
-        )
+        result = self._build_dropdown_options_with_project("Current", "/current", recent)
         # Current + 3 recent
         assert len(result) == 4
         assert result[0]["label"] == "Current"

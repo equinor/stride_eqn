@@ -1,6 +1,6 @@
 """Tests for ColorPalette.merge_with_project_dimensions."""
 
-from stride.ui.palette import ColorCategory, ColorPalette, TOL_BRIGHT, TOL_METRICS_LIGHT
+from stride.ui.palette import ColorPalette, TOL_BRIGHT
 
 
 class TestMergeMatchedNames:

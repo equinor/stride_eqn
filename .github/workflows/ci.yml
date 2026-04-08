@@ -37,7 +37,9 @@ jobs:
         ssh-private-key: ${{ secrets.STRIDE_DATA_DEPLOY_KEY }}
     - name: Download test data
       run: |
-        git clone git@github.com:dsgrid/stride-data.git /tmp/stride-data
+        STRIDE_DATA_REF=$(cat .stride-data-ref | tr -d '[:space:]')
+        echo "Cloning stride-data at ref: $STRIDE_DATA_REF"
+        git clone --branch "$STRIDE_DATA_REF" --single-branch git@github.com:dsgrid/stride-data.git /tmp/stride-data
         mkdir -p ~/.stride/data
         cp -r /tmp/stride-data/global ~/.stride/data/
         cp -r /tmp/stride-data/global-test ~/.stride/data/

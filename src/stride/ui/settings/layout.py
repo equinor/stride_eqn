@@ -133,7 +133,12 @@ def create_settings_layout(
                                                                 step=1,
                                                                 value=max_cached_value,
                                                                 className="form-control form-control-sm",
-                                                                style={"width": "100px", "display": "inline-block", "height": "31px", "fontSize": "0.85rem"},
+                                                                style={
+                                                                    "width": "100px",
+                                                                    "display": "inline-block",
+                                                                    "height": "31px",
+                                                                    "fontSize": "0.85rem",
+                                                                },
                                                                 readOnly=is_overridden,
                                                                 disabled=is_overridden,
                                                             ),
@@ -212,8 +217,7 @@ def create_settings_layout(
                                                                 value=current_palette_name,
                                                                 placeholder="Select a user palette...",
                                                                 disabled=(
-                                                                    current_palette_type
-                                                                    != "user"
+                                                                    current_palette_type != "user"
                                                                 ),
                                                             ),
                                                             dbc.Button(
@@ -224,8 +228,7 @@ def create_settings_layout(
                                                                 size="sm",
                                                                 className="ms-2 mt-2",
                                                                 disabled=(
-                                                                    current_palette_type
-                                                                    != "user"
+                                                                    current_palette_type != "user"
                                                                     or not current_palette_name
                                                                 ),
                                                             ),
@@ -253,8 +256,7 @@ def create_settings_layout(
                                                                 size="sm",
                                                                 className="ms-2 mt-2 theme-text",
                                                                 disabled=(
-                                                                    current_palette_type
-                                                                    != "user"
+                                                                    current_palette_type != "user"
                                                                     or not current_palette_name
                                                                 ),
                                                             ),
@@ -320,7 +322,10 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        ColorCategory.SCENARIO.value, label, color, temp_edits
+                                                                        ColorCategory.SCENARIO.value,
+                                                                        label,
+                                                                        color,
+                                                                        temp_edits,
                                                                     )
                                                                     for label, color in scenario_colors.items()
                                                                 ],
@@ -340,7 +345,10 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        ColorCategory.MODEL_YEAR.value, label, color, temp_edits
+                                                                        ColorCategory.MODEL_YEAR.value,
+                                                                        label,
+                                                                        color,
+                                                                        temp_edits,
                                                                     )
                                                                     for label, color in model_year_colors.items()
                                                                 ],
@@ -360,7 +368,10 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        ColorCategory.SECTOR.value, label, color, temp_edits
+                                                                        ColorCategory.SECTOR.value,
+                                                                        label,
+                                                                        color,
+                                                                        temp_edits,
                                                                     )
                                                                     for label, color in sector_colors.items()
                                                                 ],
@@ -380,7 +391,10 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        ColorCategory.END_USE.value, label, color, temp_edits
+                                                                        ColorCategory.END_USE.value,
+                                                                        label,
+                                                                        color,
+                                                                        temp_edits,
                                                                     )
                                                                     for label, color in end_use_colors.items()
                                                                 ],
@@ -801,7 +815,7 @@ def get_temp_edits_for_category(category_value: str) -> dict[str, str]:
     """
     prefix = f"{category_value}:"
     return {
-        key[len(prefix):]: color
+        key[len(prefix) :]: color
         for key, color in _temp_color_edits.items()
         if key.startswith(prefix)
     }
@@ -861,7 +875,9 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(ColorCategory.SCENARIO.value, label, color, temp_edits)
+                            _create_color_item(
+                                ColorCategory.SCENARIO.value, label, color, temp_edits
+                            )
                             for label, color in scenario_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2 mb-3",
@@ -881,7 +897,9 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(ColorCategory.MODEL_YEAR.value, label, color, temp_edits)
+                            _create_color_item(
+                                ColorCategory.MODEL_YEAR.value, label, color, temp_edits
+                            )
                             for label, color in model_year_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2 mb-3",
@@ -901,7 +919,9 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(ColorCategory.SECTOR.value, label, color, temp_edits)
+                            _create_color_item(
+                                ColorCategory.SECTOR.value, label, color, temp_edits
+                            )
                             for label, color in sector_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2 mb-3",
@@ -921,7 +941,9 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(ColorCategory.END_USE.value, label, color, temp_edits)
+                            _create_color_item(
+                                ColorCategory.END_USE.value, label, color, temp_edits
+                            )
                             for label, color in end_use_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2",

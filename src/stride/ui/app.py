@@ -31,7 +31,11 @@ from stride.ui.settings.layout import (
     get_temp_edits_for_category,
     parse_temp_edit_key,
 )
-from stride.config import CACHED_PROJECTS_UPPER_BOUND, DEFAULT_MAX_CACHED_PROJECTS, get_max_cached_projects as _get_config_max_cached
+from stride.config import (
+    CACHED_PROJECTS_UPPER_BOUND,
+    DEFAULT_MAX_CACHED_PROJECTS,
+    get_max_cached_projects as _get_config_max_cached,
+)
 from stride.ui.palette_utils import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
@@ -434,7 +438,11 @@ def create_app(  # noqa: C901
                                         value=current_project_path,
                                         placeholder="Switch project...",
                                         className="mb-2",
-                                        style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                        style={
+                                            "fontSize": "0.85rem",
+                                            "width": "calc(100% - 35px)",
+                                            "display": "inline-block",
+                                        },
                                         clearable=False,
                                     ),
                                     html.Button(
@@ -1094,7 +1102,7 @@ def create_app(  # noqa: C901
         ]
         return options, "compare"  # Reset to home view
 
-  # Refresh dropdown options when refresh button is clicked
+    # Refresh dropdown options when refresh button is clicked
     @callback(
         Output("project-switcher-dropdown", "options", allow_duplicate=True),
         Input("refresh-projects-btn", "n_clicks"),
@@ -1376,7 +1384,11 @@ def create_app_no_project(
                                 value=None,
                                 placeholder="Select a recent project...",
                                 className="mb-2",
-                                style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                style={
+                                    "fontSize": "0.85rem",
+                                    "width": "calc(100% - 35px)",
+                                    "display": "inline-block",
+                                },
                                 clearable=False,
                             ),
                             html.Button(
@@ -1721,9 +1733,7 @@ def _register_refresh_projects_callback() -> None:
         State("current-project-path", "data"),
         prevent_initial_call=True,
     )
-    def refresh_dropdown_options(
-        n_clicks: int | None, current_path: str
-    ) -> list[dict[str, str]]:
+    def refresh_dropdown_options(n_clicks: int | None, current_path: str) -> list[dict[str, str]]:
         """Refresh the project switcher dropdown options with latest recent projects."""
         if not n_clicks:
             raise PreventUpdate
