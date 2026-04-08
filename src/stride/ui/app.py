@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,11 +17,22 @@ from stride.ui.color_manager import ColorManager
 from stride.ui.home import create_home_layout, register_home_callbacks
 from stride.ui.palette import ColorPalette
 from stride.ui.plotting import StridePlots
+from stride.ui.plotting.utils import (
+    DARK_CSS_THEME,
+    DARK_PLOTLY_TEMPLATE,
+    DEFAULT_CSS_THEME,
+    DEFAULT_PLOTLY_TEMPLATE,
+)
 from stride.ui.project_manager import add_recent_project, get_recent_projects
 from stride.ui.scenario import create_scenario_layout, register_scenario_callbacks
 from stride.ui.settings import create_settings_layout, register_settings_callbacks
-from stride.ui.settings.layout import get_temp_color_edits
-from stride.ui.tui import list_user_palettes
+from stride.ui.settings.layout import (
+    get_temp_color_edits,
+    get_temp_edits_for_category,
+    parse_temp_edit_key,
+)
+from stride.config import CACHED_PROJECTS_UPPER_BOUND, DEFAULT_MAX_CACHED_PROJECTS, get_max_cached_projects as _get_config_max_cached
+from stride.ui.palette_utils import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
 app = Dash(
@@ -41,18 +53,86 @@ app = Dash(
 _loaded_projects: dict[str, tuple[Project, ColorManager, StridePlots, str]] = {}
 _current_project_path: str | None = None
 
+# Maximum number of projects to keep open simultaneously.
+# Each open project holds a database connection with file descriptors;
+# on network-mounted filesystems too many concurrent connections cause errors.
+_max_cached_projects_override: int | None = None
 
-def create_fresh_color_manager(palette: ColorPalette, scenarios: list[str]) -> ColorManager:
+
+def get_max_cached_projects() -> int:
+    """Resolve the effective max cached projects value.
+
+    Priority: CLI override > STRIDE_MAX_CACHED_PROJECTS env var > config file > default (3).
+    Result is clamped to [1, CACHED_PROJECTS_UPPER_BOUND].
+    """
+    if _max_cached_projects_override is not None:
+        return max(1, min(CACHED_PROJECTS_UPPER_BOUND, _max_cached_projects_override))
+
+    env_val = os.environ.get("STRIDE_MAX_CACHED_PROJECTS")
+    if env_val is not None:
+        try:
+            return max(1, min(CACHED_PROJECTS_UPPER_BOUND, int(env_val)))
+        except ValueError:
+            logger.warning(
+                f"Ignoring non-numeric STRIDE_MAX_CACHED_PROJECTS={env_val!r}, "
+                "falling back to config/default"
+            )
+
+    config_val = _get_config_max_cached()
+    if config_val is not None:
+        return config_val
+
+    return DEFAULT_MAX_CACHED_PROJECTS
+
+
+def set_max_cached_projects_override(n: int | None) -> None:
+    """Set the CLI override for max cached projects.
+
+    Parameters
+    ----------
+    n : int | None
+        Override value, or None to clear
+    """
+    global _max_cached_projects_override
+    _max_cached_projects_override = n
+
+
+def _evict_oldest_project() -> None:
+    """Evict the least-recently-used project from the cache if at capacity."""
+    limit = get_max_cached_projects()
+    while len(_loaded_projects) >= limit:
+        # Dict is insertion-ordered; first key is the oldest (LRU)
+        oldest_path = next(iter(_loaded_projects))
+        old_project, _, _, old_name = _loaded_projects.pop(oldest_path)
+        try:
+            old_project.close()
+            logger.info(f"Evicted and closed project '{old_name}' at {oldest_path}")
+        except Exception as e:
+            logger.warning(f"Error closing evicted project at {oldest_path}: {e}")
+
+
+def create_fresh_color_manager(
+    palette: ColorPalette,
+    scenarios: list[str],
+    *,
+    ui_theme: str = "light",
+) -> ColorManager:
     """Create a fresh ColorManager instance, bypassing the singleton.
 
     Each project needs its own ColorManager to ensure consistent colors.
+    Applies *ui_theme* so that model-year colors are sampled from the
+    WCAG-safe iridescent range and sector/end-use colors use the
+    correct metric palette for the current theme.
     """
     from itertools import cycle
 
-    # Reset the palette's iterators to ensure consistent color assignment
+    # Reset the scenario iterator (set_ui_theme does not manage it)
     palette._scenario_iterator = cycle(palette.scenario_theme)
-    palette._model_year_iterator = cycle(palette.model_year_theme)
-    palette._metric_iterator = cycle(palette.metric_theme)
+
+    # Ensure all colors match the requested UI theme.  This re-samples
+    # model-year colors from the WCAG-safe iridescent range and
+    # re-assigns sector/end-use colors, resetting their iterators.
+    palette.set_ui_theme(ui_theme)
 
     # Use object.__new__ to bypass ColorManager's singleton __new__ method
     color_manager = object.__new__(ColorManager)
@@ -62,7 +142,7 @@ def create_fresh_color_manager(palette: ColorPalette, scenarios: list[str]) -> C
     color_manager.initialize_colors(
         scenarios=scenarios,
         sectors=literal_to_list(Sectors),
-        end_uses=[],
+        end_uses=list(palette.end_uses.keys()),
     )
 
     return color_manager
@@ -91,20 +171,43 @@ def load_project(project_path: str) -> tuple[bool, str]:
         # Check if already loaded - just switch to it
         if path_str in _loaded_projects:
             _current_project_path = path_str
+            # Move to end of dict for LRU ordering (most recently used = last)
+            entry = _loaded_projects.pop(path_str)
+            _loaded_projects[path_str] = entry
+            cached_project, _, _, project_name = entry
             # Update the APIClient singleton to point to this project
-            cached_project, _, _, project_name = _loaded_projects[path_str]
             APIClient(cached_project)  # Updates singleton
             return True, f"Switched to cached project: {project_name}"
+
+        # Evict oldest project(s) if at capacity
+        _evict_oldest_project()
 
         # Load new project
         project = Project.load(path, read_only=True)
         data_handler = APIClient(project)  # Updates singleton
 
+        # Determine current UI theme from existing project plotter
+        ui_theme = "light"
+        if _current_project_path and _current_project_path in _loaded_projects:
+            _, _, existing_plotter, _ = _loaded_projects[_current_project_path]
+            if existing_plotter:
+                ui_theme = "dark" if "dark" in existing_plotter._template else "light"
+        current_template = DARK_PLOTLY_TEMPLATE if ui_theme == "dark" else DEFAULT_PLOTLY_TEMPLATE
+
         # Create a fresh color manager for this project
         palette = project.palette.copy()
-        color_manager = create_fresh_color_manager(palette, data_handler.scenarios)
+        try:
+            palette.merge_with_project_dimensions(
+                sectors=data_handler.get_unique_sectors(),
+                end_uses=data_handler.get_unique_end_uses(),
+            )
+        except Exception as e:
+            logger.warning(f"Could not populate sectors/end_uses: {e}")
+        color_manager = create_fresh_color_manager(
+            palette, data_handler.scenarios, ui_theme=ui_theme
+        )
 
-        plotter = StridePlots(color_manager, template="plotly_dark")
+        plotter = StridePlots(color_manager, template=current_template)
 
         project_name = project.config.project_id
 
@@ -178,10 +281,21 @@ def create_app(  # noqa: C901
         current_palette_type = "project"
         current_palette_name = None
 
+    # Ensure palette has sectors and end_uses from the database.
+    # _auto_populate_palette only handles scenarios/model_years; sectors
+    # and end_uses are populated during project creation but may be
+    # missing from older projects or user palettes.
+    try:
+        sectors = data_handler.get_unique_sectors()
+        end_uses = data_handler.get_unique_end_uses()
+        palette.merge_with_project_dimensions(sectors=sectors, end_uses=end_uses)
+    except Exception as e:
+        logger.warning(f"Could not populate sectors/end_uses in palette: {e}")
+
     # Create fresh color manager for this project
     color_manager = create_fresh_color_manager(palette.copy(), data_handler.scenarios)
 
-    plotter = StridePlots(color_manager, template="plotly_dark")
+    plotter = StridePlots(color_manager, template=DEFAULT_PLOTLY_TEMPLATE)
 
     # Store in global cache - store Project (not APIClient) since APIClient is singleton
     initial_project_name = data_handler.project.config.project_id
@@ -232,12 +346,14 @@ def create_app(  # noqa: C901
         user_palettes = []
 
     project_palette_name = data_handler.project.config.project_id
+    default_user_palette_name = get_default_user_palette()
     settings_layout = create_settings_layout(
         project_palette_name=project_palette_name,
         user_palettes=user_palettes,
         current_palette_type=current_palette_type,
         current_palette_name=current_palette_name,
         color_manager=color_manager,
+        default_user_palette=default_user_palette_name,
     )
 
     # Get current project display name
@@ -310,15 +426,33 @@ def create_app(  # noqa: C901
                                 className="small mb-2",
                                 style={"fontSize": "0.8rem"},
                             ),
-                            # Dropdown for available projects (recent + discovered)
-                            dcc.Dropdown(
-                                id="project-switcher-dropdown",
-                                options=dropdown_options,  # type: ignore[arg-type]
-                                value=current_project_path,
-                                placeholder="Switch project...",
+                            html.Div(
+                                [
+                                    dcc.Dropdown(
+                                        id="project-switcher-dropdown",
+                                        options=dropdown_options,  # type: ignore[arg-type]
+                                        value=current_project_path,
+                                        placeholder="Switch project...",
+                                        className="mb-2",
+                                        style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                        clearable=False,
+                                    ),
+                                    html.Button(
+                                        html.I(className="bi bi-arrow-clockwise"),
+                                        id="refresh-projects-btn",
+                                        className="btn btn-sm btn-outline-secondary",
+                                        style={
+                                            "width": "30px",
+                                            "height": "38px",
+                                            "marginLeft": "5px",
+                                            "verticalAlign": "top",
+                                            "padding": "0",
+                                        },
+                                        title="Refresh project list",
+                                    ),
+                                ],
                                 className="mb-2",
-                                style={"fontSize": "0.85rem"},
-                                clearable=False,
+                                style={"display": "flex", "alignItems": "flex-start"},
                             ),
                         ]
                     ),
@@ -340,7 +474,7 @@ def create_app(  # noqa: C901
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
@@ -367,7 +501,7 @@ def create_app(  # noqa: C901
             dcc.Store(id="current-project-path", data=current_project_path),
             dcc.Store(id="sidebar-open", data=False),
             dcc.Store(id="chart-refresh-trigger", data=0),
-            dcc.Store(id="theme-store", data="dark"),
+            dcc.Store(id="theme-store", data=DEFAULT_CSS_THEME),
             # Dynamic scenario CSS that updates with palette changes
             html.Div(
                 id="scenario-css-container",
@@ -456,7 +590,7 @@ def create_app(  # noqa: C901
                                                     ),
                                                     dbc.Switch(
                                                         id="theme-toggle",
-                                                        value=True,
+                                                        value=False,
                                                         style={
                                                             "transform": "scale(1.2)",
                                                         },
@@ -515,11 +649,11 @@ def create_app(  # noqa: C901
                     ),
                 ],
                 id="page-content",
-                className="page-content dark-theme",
+                className=f"page-content {DEFAULT_CSS_THEME}",
                 style={"marginLeft": "0px", "transition": "margin-left 0.3s"},
             ),
         ],
-        className="dark-theme",
+        className=DEFAULT_CSS_THEME,
         style={"minHeight": "100vh"},
     )
 
@@ -625,7 +759,6 @@ def create_app(  # noqa: C901
             )
         elif trigger_id == "back-to-dashboard-btn" or trigger_id == "home-link":
             # Return to home view - apply any temporary color edits and refresh charts
-            from stride.ui.settings.layout import get_temp_color_edits
 
             # Apply temporary color edits to the ColorManager
             temp_edits = get_temp_color_edits()
@@ -633,8 +766,9 @@ def create_app(  # noqa: C901
                 color_manager = get_current_color_manager()
                 if color_manager:
                     palette = color_manager.get_palette()
-                    for label, color in temp_edits.items():
-                        palette.update(label, color)
+                    for composite_key, color in temp_edits.items():
+                        cat_str, label = parse_temp_edit_key(composite_key)
+                        palette.update(label, color, category=cat_str)
                     logger.info(
                         f"Applied {len(temp_edits)} temporary color edits when returning to home"
                     )
@@ -680,16 +814,25 @@ def create_app(  # noqa: C901
     )
     def toggle_theme(is_dark: bool, refresh_count: int) -> tuple[str, str, str, int]:
         """Toggle between light and dark theme."""
-        theme = "dark-theme" if is_dark else "light-theme"
+        theme = DARK_CSS_THEME if is_dark else DEFAULT_CSS_THEME
+        ui_mode = "dark" if is_dark else "light"
 
-        # Update plotter template for all charts
+        # Update plotter template and palette colors for all charts
         if plotter:
-            template = "plotly_dark" if is_dark else "plotly_white"
+            template = DARK_PLOTLY_TEMPLATE if is_dark else DEFAULT_PLOTLY_TEMPLATE
             plotter.set_template(template)
+            # Update palette colors for new theme contrast requirements
+            plotter.color_manager.get_palette().set_ui_theme(ui_mode)
             logger.info(f"Switched to {theme} with plot template {template}")
 
-        # Note: For OS theme detection, add clientside callback with:
-        # window.matchMedia('(prefers-color-scheme: dark)').matches
+        # Also update the cached plotter's palette if project is loaded
+        if _current_project_path in _loaded_projects:
+            _, cm, cached_plotter, _ = _loaded_projects[_current_project_path]
+            if cached_plotter and cached_plotter is not plotter:
+                cached_plotter.set_template(
+                    DARK_PLOTLY_TEMPLATE if is_dark else DEFAULT_PLOTLY_TEMPLATE
+                )
+                cm.get_palette().set_ui_theme(ui_mode)
 
         return theme, f"sidebar-nav {theme}", theme, refresh_count + 1
 
@@ -699,18 +842,37 @@ def create_app(  # noqa: C901
         global _loaded_projects, _current_project_path
 
         if _current_project_path in _loaded_projects:
-            cached_project, _, _, project_name = _loaded_projects[_current_project_path]
+            cached_project, _, old_plotter, project_name = _loaded_projects[_current_project_path]
+
+            # Preserve the current plotly template from the existing plotter
+            current_template = old_plotter._template if old_plotter else DEFAULT_PLOTLY_TEMPLATE
 
             # Create a copy of the palette to avoid modifying the original
             palette_copy = palette.copy()
 
+            # Determine current UI theme
+            ui_mode = "dark" if "dark" in current_template else "light"
+
             # Get current data handler (singleton)
             data_handler = APIClient(cached_project)
 
-            # Create fresh color manager with new palette
-            color_manager = create_fresh_color_manager(palette_copy, data_handler.scenarios)
+            # Ensure sectors/end_uses are current
+            try:
+                palette_copy.merge_with_project_dimensions(
+                    sectors=data_handler.get_unique_sectors(),
+                    end_uses=data_handler.get_unique_end_uses(),
+                )
+            except Exception as e:
+                logger.warning(f"Could not populate sectors/end_uses: {e}")
 
-            plotter = StridePlots(color_manager, template="plotly_dark")
+            # Create fresh color manager with new palette
+            color_manager = create_fresh_color_manager(
+                palette_copy,
+                data_handler.scenarios,
+                ui_theme=ui_mode,
+            )
+
+            plotter = StridePlots(color_manager, template=current_template)
 
             # Update cache (preserve project and project_name)
             _loaded_projects[_current_project_path] = (
@@ -777,8 +939,8 @@ def create_app(  # noqa: C901
         if color_manager is None:
             raise PreventUpdate
 
-        # Get temporary color edits to apply to CSS
-        temp_edits = get_temp_color_edits()
+        # Get scenario-only temporary color edits (plain label keys)
+        scenario_edits = get_temp_edits_for_category("scenarios")
 
         return [
             html.Script(
@@ -790,7 +952,7 @@ def create_app(  # noqa: C901
                     }}
                     var style = document.createElement('style');
                     style.id = 'scenario-dynamic-css';
-                    style.textContent = `{color_manager.generate_scenario_css(temp_edits)}`;
+                    style.textContent = `{color_manager.generate_scenario_css(scenario_edits)}`;
                     document.head.appendChild(style);
                 }})();
                 """
@@ -870,7 +1032,10 @@ def create_app(  # noqa: C901
                 if dropdown_value in _loaded_projects:
                     # Project already loaded - just switch to it
                     _current_project_path = dropdown_value
-                    cached_project, _, _, project_name = _loaded_projects[dropdown_value]
+                    # Move to end of dict for LRU ordering
+                    entry = _loaded_projects.pop(dropdown_value)
+                    _loaded_projects[dropdown_value] = entry
+                    cached_project, _, _, project_name = entry
                     # Update the APIClient singleton to point to this project
                     APIClient(cached_project)
                     return (
@@ -928,6 +1093,42 @@ def create_app(  # noqa: C901
             *[{"label": s, "value": s} for s in new_scenarios],
         ]
         return options, "compare"  # Reset to home view
+
+  # Refresh dropdown options when refresh button is clicked
+    @callback(
+        Output("project-switcher-dropdown", "options", allow_duplicate=True),
+        Input("refresh-projects-btn", "n_clicks"),
+        State("current-project-path", "data"),
+        prevent_initial_call=True,
+    )
+    def refresh_dropdown_options(n_clicks: int | None, current_path: str) -> list[dict[str, str]]:
+        """Refresh the project switcher dropdown options with latest recent projects."""
+        if not n_clicks:
+            raise PreventUpdate
+
+        # Get current project info
+        data_handler = get_current_data_handler()
+        if not data_handler:
+            raise PreventUpdate
+
+        current_project_name = data_handler.project.config.project_id
+
+        # Build fresh dropdown options with deduplication by project_id
+        dropdown_options = [{"label": current_project_name, "value": current_path}]
+        seen_project_ids = {current_project_name}
+
+        # Get recent projects
+        recent = get_recent_projects()
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+
+        return dropdown_options
 
     # Regenerate home layout when project changes
     @callback(
@@ -992,6 +1193,7 @@ def create_app(  # noqa: C901
         ]
 
     return app
+
 
 def create_app_no_project(
     user_palette: ColorPalette | None = None,
@@ -1093,7 +1295,9 @@ def create_app_no_project(
                     html.P(
                         [
                             "To create a new project, use the CLI: ",
-                            html.Code("stride projects create <config.json5>", className="welcome-code"),
+                            html.Code(
+                                "stride projects create <config.json5>", className="welcome-code"
+                            ),
                         ],
                         className="text-muted small",
                     ),
@@ -1172,8 +1376,21 @@ def create_app_no_project(
                                 value=None,
                                 placeholder="Select a recent project...",
                                 className="mb-2",
-                                style={"fontSize": "0.85rem"},
-                                clearable=True,
+                                style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                clearable=False,
+                            ),
+                            html.Button(
+                                html.I(className="bi bi-arrow-clockwise"),
+                                id="refresh-projects-btn",
+                                className="btn btn-sm btn-outline-secondary",
+                                style={
+                                    "width": "30px",
+                                    "height": "38px",
+                                    "marginLeft": "5px",
+                                    "verticalAlign": "top",
+                                    "padding": "0",
+                                },
+                                title="Refresh project list",
                             ),
                         ]
                     ),
@@ -1196,7 +1413,7 @@ def create_app_no_project(
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
@@ -1220,7 +1437,7 @@ def create_app_no_project(
             dcc.Store(id="current-project-path", data=""),
             dcc.Store(id="sidebar-open", data=False),
             dcc.Store(id="chart-refresh-trigger", data=0),
-            dcc.Store(id="theme-store", data="dark"),
+            dcc.Store(id="theme-store", data=DEFAULT_CSS_THEME),
             dcc.Store(id="color-edits-counter", data=0),
             # Empty scenario CSS container
             html.Div(id="scenario-css-container", children=[], style={"display": "none"}),
@@ -1291,7 +1508,7 @@ def create_app_no_project(
                                                     ),
                                                     dbc.Switch(
                                                         id="theme-toggle",
-                                                        value=True,
+                                                        value=False,
                                                         style={
                                                             "transform": "scale(1.2)",
                                                         },
@@ -1348,14 +1565,14 @@ def create_app_no_project(
                     ),
                 ],
                 id="page-content",
-                className="page-content dark-theme",
+                className=f"page-content {DEFAULT_CSS_THEME}",
                 style={
                     "marginLeft": "0",
                     "transition": "margin-left 0.3s ease-in-out",
                 },
             ),
         ],
-        className="dark-theme",
+        className=DEFAULT_CSS_THEME,
     )
 
     # Register callbacks for no-project mode
@@ -1407,12 +1624,33 @@ def _on_palette_change_no_project(
     global _loaded_projects, _current_project_path
 
     if _current_project_path and _current_project_path in _loaded_projects:
-        cached_project, _, _, project_name = _loaded_projects[_current_project_path]
+        cached_project, _, old_plotter, project_name = _loaded_projects[_current_project_path]
+
+        # Preserve the current plotly template from the existing plotter
+        current_template = old_plotter._template if old_plotter else DEFAULT_PLOTLY_TEMPLATE
 
         palette_copy = palette.copy()
+
+        # Determine current UI theme
+        ui_mode = "dark" if "dark" in current_template else "light"
+
         data_handler = APIClient(cached_project)
-        new_color_manager = create_fresh_color_manager(palette_copy, data_handler.scenarios)
-        new_plotter = StridePlots(new_color_manager, template="plotly_dark")
+
+        # Ensure sectors/end_uses are current
+        try:
+            palette_copy.merge_with_project_dimensions(
+                sectors=data_handler.get_unique_sectors(),
+                end_uses=data_handler.get_unique_end_uses(),
+            )
+        except Exception as e:
+            logger.warning(f"Could not populate sectors/end_uses: {e}")
+
+        new_color_manager = create_fresh_color_manager(
+            palette_copy,
+            data_handler.scenarios,
+            ui_theme=ui_mode,
+        )
+        new_plotter = StridePlots(new_color_manager, template=current_template)
 
         _loaded_projects[_current_project_path] = (
             cached_project,
@@ -1448,6 +1686,9 @@ def _register_no_project_callbacks(
     # Register the scenario CSS update callback
     _register_scenario_css_callback(get_current_color_manager)
 
+    # Register the refresh projects callback
+    _register_refresh_projects_callback()
+
     # Register home and scenario callbacks with dynamic data fetching
     register_home_callbacks(
         _get_current_data_handler_no_project,
@@ -1469,6 +1710,40 @@ def _register_no_project_callbacks(
         get_current_color_manager,
         _on_palette_change_no_project,
     )
+
+
+def _register_refresh_projects_callback() -> None:
+    """Register the refresh projects button callback."""
+
+    @callback(
+        Output("project-switcher-dropdown", "options", allow_duplicate=True),
+        Input("refresh-projects-btn", "n_clicks"),
+        State("current-project-path", "data"),
+        prevent_initial_call=True,
+    )
+    def refresh_dropdown_options(
+        n_clicks: int | None, current_path: str
+    ) -> list[dict[str, str]]:
+        """Refresh the project switcher dropdown options with latest recent projects."""
+        if not n_clicks:
+            raise PreventUpdate
+
+        # Build fresh dropdown options with deduplication by project_id
+        dropdown_options: list[dict[str, str]] = []
+        seen_project_ids: set[str] = set()
+
+        # Get recent projects
+        recent = get_recent_projects()
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+
+        return dropdown_options
 
 
 def _register_sidebar_toggle_callback() -> None:
@@ -1534,12 +1809,14 @@ def _register_theme_toggle_callback() -> None:
     )
     def toggle_theme(is_dark: bool, refresh_count: int) -> tuple[str, str, str, int]:
         """Toggle between light and dark theme."""
-        theme = "dark-theme" if is_dark else "light-theme"
+        theme = DARK_CSS_THEME if is_dark else DEFAULT_CSS_THEME
+        ui_mode = "dark" if is_dark else "light"
 
         plotter = _get_current_plotter_no_project()
         if plotter:
-            template = "plotly_dark" if is_dark else "plotly_white"
+            template = DARK_PLOTLY_TEMPLATE if is_dark else DEFAULT_PLOTLY_TEMPLATE
             plotter.set_template(template)
+            plotter.color_manager.get_palette().set_ui_theme(ui_mode)
             logger.info(f"Switched to {theme} with plot template {template}")
 
         return f"page-content {theme}", f"sidebar-nav {theme}", theme, refresh_count + 1
@@ -1710,6 +1987,7 @@ def _build_successful_load_response(
         current_palette_type="project",
         current_palette_name=None,
         color_manager=color_manager,
+        default_user_palette=get_default_user_palette(),
     )
 
     # Generate scenario CSS
@@ -1736,7 +2014,11 @@ def _generate_scenario_css_script(
     temp_edits: dict[str, str] | None = None,
 ) -> list[Any]:
     """Generate the scenario CSS script element."""
-    css_content = color_manager.generate_scenario_css(temp_edits) if temp_edits else color_manager.generate_scenario_css()
+    css_content = (
+        color_manager.generate_scenario_css(temp_edits)
+        if temp_edits
+        else color_manager.generate_scenario_css()
+    )
     return [
         html.Script(
             f"""
@@ -1823,7 +2105,15 @@ def _toggle_views_impl(
     if trigger_id == "sidebar-settings-btn":
         if not project_path:
             raise PreventUpdate
-        return (True, True, False, {"display": "none"}, selected_view, current_refresh_count, no_update)
+        return (
+            True,
+            True,
+            False,
+            {"display": "none"},
+            selected_view,
+            current_refresh_count,
+            no_update,
+        )
 
     if trigger_id in ("back-to-dashboard-btn", "home-link"):
         temp_edits = get_temp_color_edits()
@@ -1831,14 +2121,33 @@ def _toggle_views_impl(
             color_manager = get_current_color_manager()
             if color_manager:
                 palette = color_manager.get_palette()
-                for label, color in temp_edits.items():
-                    palette.update(label, color)
-                logger.info(f"Applied {len(temp_edits)} temporary color edits when returning to home")
+                for composite_key, color in temp_edits.items():
+                    cat_str, label = parse_temp_edit_key(composite_key)
+                    palette.update(label, color, category=cat_str)
+                logger.info(
+                    f"Applied {len(temp_edits)} temporary color edits when returning to home"
+                )
 
-        return (False, True, True, {"display": "block"}, "compare", current_refresh_count + 1, no_update)
+        return (
+            False,
+            True,
+            True,
+            {"display": "block"},
+            "compare",
+            current_refresh_count + 1,
+            no_update,
+        )
 
     if selected_view == "compare":
-        return (False, True, True, {"display": "block"}, selected_view, current_refresh_count, no_update)
+        return (
+            False,
+            True,
+            True,
+            {"display": "block"},
+            selected_view,
+            current_refresh_count,
+            no_update,
+        )
 
     # Scenario view - need to create layout
     data_handler = _get_current_data_handler_no_project()
@@ -1847,7 +2156,15 @@ def _toggle_views_impl(
         raise PreventUpdate
 
     scenario_layout = create_scenario_layout(data_handler.years, color_manager)
-    return (True, False, True, {"display": "block"}, selected_view, current_refresh_count, scenario_layout)
+    return (
+        True,
+        False,
+        True,
+        {"display": "block"},
+        selected_view,
+        current_refresh_count,
+        scenario_layout,
+    )
 
 
 def _register_scenario_css_callback(
@@ -1875,5 +2192,5 @@ def _register_scenario_css_callback(
         if color_manager is None:
             raise PreventUpdate
 
-        temp_edits = get_temp_color_edits()
-        return _generate_scenario_css_script(color_manager, temp_edits)
+        scenario_edits = get_temp_edits_for_category("scenarios")
+        return _generate_scenario_css_script(color_manager, scenario_edits)

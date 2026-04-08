@@ -1,7 +1,7 @@
 import re
 from typing import Dict, List, Self
 
-from .palette import ColorPalette
+from .palette import ColorCategory, ColorPalette
 
 
 class ColorManager:
@@ -34,24 +34,46 @@ class ColorManager:
         sectors: List[str] | None = None,
         end_uses: List[str] | None = None,
     ) -> None:
-        """Initialize colors for all entities at once to ensure consistency."""
-        all_keys = scenarios.copy()
-        if sectors:
-            all_keys.extend(sectors)
-        if end_uses:
-            all_keys.extend(end_uses)
+        """Initialize colors for all entities at once to ensure consistency.
 
-        # Pre-generate colors for all keys to ensure consistent assignment
-        for key in all_keys:
-            self.get_color(key)
+        Each entity type is stored in its correct palette category:
+        scenarios → ``ColorCategory.SCENARIO``, sectors/end-uses →
+        ``ColorCategory.SECTOR`` / ``ColorCategory.END_USE``.
+        """
+        # Scenarios → scenario palette
+        for key in scenarios:
+            self.get_color(key, ColorCategory.SCENARIO)
+
+        # Sectors → sector palette
+        if sectors:
+            for key in sectors:
+                self.get_color(key, ColorCategory.SECTOR)
+
+        # End-uses → end-use palette
+        if end_uses:
+            for key in end_uses:
+                self.get_color(key, ColorCategory.END_USE)
 
         # Generate scenario styling colors
         self._generate_scenario_colors(scenarios)
 
-    def get_color(self, key: str) -> str:
-        """Get consistent RGBA color for a given key."""
+    def get_color(
+        self,
+        key: str,
+        category: ColorCategory | str | None = None,
+    ) -> str:
+        """Get consistent RGBA color for a given key.
+
+        Parameters
+        ----------
+        key : str
+            Label to look up (scenario name, sector, end-use, year, etc.)
+        category : ColorCategory | str | None
+            Which palette category to use.  When ``None``, all categories are
+            searched and new keys default to ``ColorCategory.SECTOR``.
+        """
         # Get color from palette (could be hex or rgb string)
-        color = self._palette.get(key)
+        color = self._palette.get(key, category=category)
 
         # Convert to RGBA for UI usage
         if color.startswith("#"):
@@ -120,7 +142,7 @@ class ColorManager:
     def _generate_scenario_colors(self, scenarios: List[str]) -> None:
         """Generate background and border colors for scenarios."""
         for scenario in scenarios:
-            base_color = self.get_color(scenario)
+            base_color = self.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = self._str_to_rgba(base_color)
 
             self._scenario_colors[scenario] = {

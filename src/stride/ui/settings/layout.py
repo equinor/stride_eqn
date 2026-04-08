@@ -1,11 +1,16 @@
 """Settings page layout for STRIDE dashboard."""
 
+import os
+
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from stride.ui.color_manager import ColorManager
+from stride.ui.palette import ColorCategory
 
-# Store for temporarily edited colors before saving
+# Store for temporarily edited colors before saving.
+# Keys are composite ``"category_value:label"`` strings (e.g.
+# ``"scenarios:baseline"``).
 _temp_color_edits: dict[str, str] = {}
 
 
@@ -15,6 +20,7 @@ def create_settings_layout(
     current_palette_type: str,
     current_palette_name: str | None,
     color_manager: ColorManager,
+    default_user_palette: str | None = None,
 ) -> html.Div:
     """
     Create the settings page layout.
@@ -31,6 +37,8 @@ def create_settings_layout(
         Name of currently active user palette (if type is 'user')
     color_manager : ColorManager
         Color manager instance for displaying current colors
+    default_user_palette : str | None
+        Name of the current default user palette, or None if not set
 
     Returns
     -------
@@ -43,21 +51,49 @@ def create_settings_layout(
     # Get structured palette with categories
     structured_palette = palette.to_dict()
 
-    # Extract colors for each category and convert to RGBA for display
+    # Extract colors for each category and convert to RGBA for display.
     scenario_colors = {}
     for label in structured_palette.get("scenarios", {}):
-        scenario_colors[label] = color_manager.get_color(label)
+        scenario_colors[label] = color_manager.get_color(label, ColorCategory.SCENARIO)
 
     model_year_colors = {}
     for label in structured_palette.get("model_years", {}):
-        model_year_colors[label] = color_manager.get_color(label)
+        model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
-    metric_colors = {}
-    for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label)
+    sector_colors = {}
+    for label in structured_palette.get("sectors", {}):
+        sector_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+
+    end_use_colors = {}
+    for label in structured_palette.get("end_uses", {}):
+        end_use_colors[label] = color_manager.get_color(label, ColorCategory.END_USE)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
+
+    # Resolve max cached projects override state for the General section
+    from stride.ui.app import (
+        _max_cached_projects_override,
+        get_max_cached_projects,
+    )
+
+    max_cached_value = get_max_cached_projects()
+    override_source = None
+    if _max_cached_projects_override is not None:
+        override_source = f"CLI flag (--max-cached-projects {_max_cached_projects_override})"
+    elif os.environ.get("STRIDE_MAX_CACHED_PROJECTS") is not None:
+        override_source = f"Environment variable (STRIDE_MAX_CACHED_PROJECTS={os.environ['STRIDE_MAX_CACHED_PROJECTS']})"
+    is_overridden = override_source is not None
+
+    override_badge = []
+    if is_overridden:
+        override_badge = [
+            dbc.Badge(
+                f"Overridden by: {override_source}",
+                color="warning",
+                className="ms-2 mb-2",
+            ),
+        ]
 
     return html.Div(
         [
@@ -73,6 +109,64 @@ def create_settings_layout(
                                 ]
                             )
                         ]
+                    ),
+                    # General Settings Section
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.H4("General", className="mb-3"),
+                                    dbc.Card(
+                                        [
+                                            dbc.CardBody(
+                                                [
+                                                    html.Label(
+                                                        "Max Cached Projects:",
+                                                        className="form-label fw-bold",
+                                                    ),
+                                                    *override_badge,
+                                                    html.Div(
+                                                        [
+                                                            dcc.Input(
+                                                                id="max-cached-projects-input",
+                                                                type="number",
+                                                                step=1,
+                                                                value=max_cached_value,
+                                                                className="form-control form-control-sm",
+                                                                style={"width": "100px", "display": "inline-block", "height": "31px", "fontSize": "0.85rem"},
+                                                                readOnly=is_overridden,
+                                                                disabled=is_overridden,
+                                                            ),
+                                                            dbc.Button(
+                                                                "Save",
+                                                                id="save-max-cached-btn",
+                                                                color="primary",
+                                                                size="sm",
+                                                                className="ms-2",
+                                                                disabled=is_overridden,
+                                                            ),
+                                                        ],
+                                                        className="d-flex align-items-center mb-2",
+                                                    ),
+                                                    html.Small(
+                                                        "Number of projects to keep open simultaneously. "
+                                                        "Each open project holds a database connection; "
+                                                        "too many concurrent connections may cause errors on network-mounted filesystems.",
+                                                        className="text-muted",
+                                                    ),
+                                                    html.Div(
+                                                        id="max-cached-projects-status",
+                                                        className="mt-2",
+                                                    ),
+                                                ]
+                                            )
+                                        ],
+                                        className="mb-4",
+                                    ),
+                                ]
+                            )
+                        ],
+                        className="mb-4",
                     ),
                     # Palette Selection Section
                     dbc.Row(
@@ -119,7 +213,49 @@ def create_settings_layout(
                                                                 placeholder="Select a user palette...",
                                                                 disabled=(
                                                                     current_palette_type
-                                                                    == "project"
+                                                                    != "user"
+                                                                ),
+                                                            ),
+                                                            dbc.Button(
+                                                                "Delete",
+                                                                id="delete-user-palette-btn",
+                                                                color="danger",
+                                                                outline=True,
+                                                                size="sm",
+                                                                className="ms-2 mt-2",
+                                                                disabled=(
+                                                                    current_palette_type
+                                                                    != "user"
+                                                                    or not current_palette_name
+                                                                ),
+                                                            ),
+                                                            dbc.Button(
+                                                                (
+                                                                    "Dashboard Default ✓ (Clear)"
+                                                                    if (
+                                                                        current_palette_name
+                                                                        and current_palette_name
+                                                                        == default_user_palette
+                                                                    )
+                                                                    else "Set as Dashboard Default"
+                                                                ),
+                                                                id="set-default-palette-btn",
+                                                                color=(
+                                                                    "success"
+                                                                    if (
+                                                                        current_palette_name
+                                                                        and current_palette_name
+                                                                        == default_user_palette
+                                                                    )
+                                                                    else "secondary"
+                                                                ),
+                                                                outline=True,
+                                                                size="sm",
+                                                                className="ms-2 mt-2 theme-text",
+                                                                disabled=(
+                                                                    current_palette_type
+                                                                    != "user"
+                                                                    or not current_palette_name
                                                                 ),
                                                             ),
                                                         ],
@@ -131,6 +267,24 @@ def create_settings_layout(
                                                                 else "none"
                                                             )
                                                         },
+                                                    ),
+                                                    # Palette source hint (shown dynamically)
+                                                    html.Div(
+                                                        id="palette-source-hint",
+                                                        className="mt-2",
+                                                    ),
+                                                    # Unsaved changes indicator (shown dynamically)
+                                                    html.Div(
+                                                        id="unsaved-changes-indicator",
+                                                    ),
+                                                    # Reset to Defaults button
+                                                    dbc.Button(
+                                                        "Reset to Defaults",
+                                                        id="reset-to-defaults-btn",
+                                                        color="secondary",
+                                                        outline=True,
+                                                        size="sm",
+                                                        className="mt-3",
                                                     ),
                                                 ]
                                             )
@@ -166,7 +320,7 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        label, color, temp_edits
+                                                                        ColorCategory.SCENARIO.value, label, color, temp_edits
                                                                     )
                                                                     for label, color in scenario_colors.items()
                                                                 ],
@@ -186,7 +340,7 @@ def create_settings_layout(
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        label, color, temp_edits
+                                                                        ColorCategory.MODEL_YEAR.value, label, color, temp_edits
                                                                     )
                                                                     for label, color in model_year_colors.items()
                                                                 ],
@@ -200,21 +354,41 @@ def create_settings_layout(
                                                     html.Div(
                                                         [
                                                             html.H6(
-                                                                "Metrics",
+                                                                "Sectors",
                                                                 className="mb-2 text-muted",
                                                             ),
                                                             html.Div(
                                                                 [
                                                                     _create_color_item(
-                                                                        label, color, temp_edits
+                                                                        ColorCategory.SECTOR.value, label, color, temp_edits
                                                                     )
-                                                                    for label, color in metric_colors.items()
+                                                                    for label, color in sector_colors.items()
+                                                                ],
+                                                                className="d-flex flex-wrap gap-2 mb-3",
+                                                            ),
+                                                        ]
+                                                    )
+                                                    if sector_colors
+                                                    else None,
+                                                    # End Uses
+                                                    html.Div(
+                                                        [
+                                                            html.H6(
+                                                                "End Uses",
+                                                                className="mb-2 text-muted",
+                                                            ),
+                                                            html.Div(
+                                                                [
+                                                                    _create_color_item(
+                                                                        ColorCategory.END_USE.value, label, color, temp_edits
+                                                                    )
+                                                                    for label, color in end_use_colors.items()
                                                                 ],
                                                                 className="d-flex flex-wrap gap-2",
                                                             ),
                                                         ]
                                                     )
-                                                    if metric_colors
+                                                    if end_use_colors
                                                     else None,
                                                 ],
                                             )
@@ -404,6 +578,8 @@ def create_settings_layout(
                     dcc.Store(id="selected-color-label", data=None),
                     # Hidden store for tracking color edits (triggers refresh)
                     dcc.Store(id="color-edits-counter", data=0),
+                    # Hidden store for tracking the current default user palette
+                    dcc.Store(id="default-user-palette-store", data=default_user_palette),
                     # Save Options Section
                     dbc.Row(
                         html.Div(
@@ -422,13 +598,6 @@ def create_settings_layout(
                                                         html.Div(
                                                             [
                                                                 dbc.Button(
-                                                                    "Save Current Palette",
-                                                                    id="save-current-palette-btn",
-                                                                    color="primary",
-                                                                    outline=True,
-                                                                    className="m-1 theme-text",
-                                                                ),
-                                                                dbc.Button(
                                                                     "Save to Project",
                                                                     id="save-to-project-btn",
                                                                     color="success",
@@ -436,7 +605,7 @@ def create_settings_layout(
                                                                     className="m-1 theme-text",
                                                                 ),
                                                                 dbc.Button(
-                                                                    "Save to New Palette",
+                                                                    "Save As User Palette",
                                                                     id="save-to-new-palette-btn",
                                                                     color="info",
                                                                     outline=True,
@@ -445,21 +614,9 @@ def create_settings_layout(
                                                                 dbc.Button(
                                                                     "Revert Changes",
                                                                     id="revert-changes-btn",
-                                                                    color="warning",
+                                                                    color="secondary",
                                                                     outline=True,
                                                                     className="m-1 theme-text",
-                                                                ),
-                                                                dbc.Button(
-                                                                    "Delete Selected User Palette",
-                                                                    id="delete-user-palette-btn",
-                                                                    color="danger",
-                                                                    outline=True,
-                                                                    className="m-1 theme-text",
-                                                                    disabled=(
-                                                                        current_palette_type
-                                                                        == "project"
-                                                                        or not current_palette_name
-                                                                    ),
                                                                 ),
                                                             ],
                                                             className="d-flex flex-wrap mb-3",
@@ -517,26 +674,31 @@ def create_settings_layout(
     )
 
 
-def _create_color_item(label: str, color: str, temp_edits: dict[str, str]) -> html.Div:
+def _create_color_item(
+    category: str, label: str, color: str, temp_edits: dict[str, str]
+) -> html.Div:
     """
     Create a color preview item with label.
 
     Parameters
     ----------
+    category : str
+        Category value string (e.g. ``"scenarios"``, ``"model_years"``).
     label : str
         Label name
     color : str
         Color value (hex, rgb, or rgba)
     temp_edits : dict[str, str]
-        Dictionary of temporary color edits
+        Dictionary of temporary color edits (composite key → color)
 
     Returns
     -------
     html.Div
         Color preview component
     """
+    composite_key = f"{category}:{label}"
     # Check if there's a temporary edit for this color
-    display_color = temp_edits.get(label, color)
+    display_color = temp_edits.get(composite_key, color)
 
     return html.Div(
         [
@@ -562,7 +724,7 @@ def _create_color_item(label: str, color: str, temp_edits: dict[str, str]) -> ht
                         },
                     ),
                 ],
-                id={"type": "color-item", "index": label},
+                id={"type": "color-item", "index": composite_key},
                 n_clicks=0,
                 style={
                     "display": "inline-flex",
@@ -582,7 +744,10 @@ def _create_color_item(label: str, color: str, temp_edits: dict[str, str]) -> ht
 
 
 def get_temp_color_edits() -> dict[str, str]:
-    """Get the temporary color edits dictionary."""
+    """Get the temporary color edits dictionary.
+
+    Keys are composite ``"category_value:label"`` strings.
+    """
     return _temp_color_edits
 
 
@@ -591,9 +756,55 @@ def clear_temp_color_edits() -> None:
     _temp_color_edits.clear()
 
 
-def set_temp_color_edit(label: str, color: str) -> None:
-    """Set a temporary color edit."""
-    _temp_color_edits[label] = color
+def set_temp_color_edit(composite_key: str, color: str) -> None:
+    """Set a temporary color edit.
+
+    Parameters
+    ----------
+    composite_key : str
+        Key in ``"category_value:label"`` format.
+    color : str
+        Hex color string.
+    """
+    _temp_color_edits[composite_key] = color
+
+
+def parse_temp_edit_key(composite_key: str) -> tuple[str, str]:
+    """Split a composite temp-edit key into ``(category_value, label)``.
+
+    Parameters
+    ----------
+    composite_key : str
+        Key in ``"category_value:label"`` format.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(category_value, label)``
+    """
+    category, _, label = composite_key.partition(":")
+    return category, label
+
+
+def get_temp_edits_for_category(category_value: str) -> dict[str, str]:
+    """Return temp edits for one category with plain label keys.
+
+    Parameters
+    ----------
+    category_value : str
+        The ``ColorCategory`` ``.value`` string, e.g. ``"scenarios"``.
+
+    Returns
+    -------
+    dict[str, str]
+        ``{label: color}`` for entries matching the given category.
+    """
+    prefix = f"{category_value}:"
+    return {
+        key[len(prefix):]: color
+        for key, color in _temp_color_edits.items()
+        if key.startswith(prefix)
+    }
 
 
 def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
@@ -616,18 +827,22 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
     # Get structured palette with categories
     structured_palette = palette.to_dict()
 
-    # Extract colors for each category and convert to RGBA for display
+    # Extract colors for each category and convert to RGBA for display.
     scenario_colors = {}
     for label in structured_palette.get("scenarios", {}):
-        scenario_colors[label] = color_manager.get_color(label)
+        scenario_colors[label] = color_manager.get_color(label, ColorCategory.SCENARIO)
 
     model_year_colors = {}
     for label in structured_palette.get("model_years", {}):
-        model_year_colors[label] = color_manager.get_color(label)
+        model_year_colors[label] = color_manager.get_color(label, ColorCategory.MODEL_YEAR)
 
-    metric_colors = {}
-    for label in structured_palette.get("metrics", {}):
-        metric_colors[label] = color_manager.get_color(label)
+    sector_colors = {}
+    for label in structured_palette.get("sectors", {}):
+        sector_colors[label] = color_manager.get_color(label, ColorCategory.SECTOR)
+
+    end_use_colors = {}
+    for label in structured_palette.get("end_uses", {}):
+        end_use_colors[label] = color_manager.get_color(label, ColorCategory.END_USE)
 
     # Get temporary color edits
     temp_edits = get_temp_color_edits()
@@ -646,7 +861,7 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(label, color, temp_edits)
+                            _create_color_item(ColorCategory.SCENARIO.value, label, color, temp_edits)
                             for label, color in scenario_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2 mb-3",
@@ -666,7 +881,7 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
                     ),
                     html.Div(
                         [
-                            _create_color_item(label, color, temp_edits)
+                            _create_color_item(ColorCategory.MODEL_YEAR.value, label, color, temp_edits)
                             for label, color in model_year_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2 mb-3",
@@ -675,19 +890,39 @@ def create_color_preview_content(color_manager: ColorManager) -> list[html.Div]:
             )
         )
 
-    # Metrics
-    if metric_colors:
+    # Sectors
+    if sector_colors:
         content.append(
             html.Div(
                 [
                     html.H6(
-                        "Metrics",
+                        "Sectors",
                         className="mb-2 text-muted",
                     ),
                     html.Div(
                         [
-                            _create_color_item(label, color, temp_edits)
-                            for label, color in metric_colors.items()
+                            _create_color_item(ColorCategory.SECTOR.value, label, color, temp_edits)
+                            for label, color in sector_colors.items()
+                        ],
+                        className="d-flex flex-wrap gap-2 mb-3",
+                    ),
+                ]
+            )
+        )
+
+    # End Uses
+    if end_use_colors:
+        content.append(
+            html.Div(
+                [
+                    html.H6(
+                        "End Uses",
+                        className="mb-2 text-muted",
+                    ),
+                    html.Div(
+                        [
+                            _create_color_item(ColorCategory.END_USE.value, label, color, temp_edits)
+                            for label, color in end_use_colors.items()
                         ],
                         className="d-flex flex-wrap gap-2",
                     ),

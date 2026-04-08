@@ -5,6 +5,7 @@ from dash import dcc, html
 
 from stride.api.utils import SecondaryMetric, literal_to_list
 from stride.ui.color_manager import ColorManager
+from stride.ui.palette import ColorCategory
 
 
 def create_home_layout(
@@ -28,7 +29,7 @@ def create_home_layout(
         scenario_buttons = []
         for scenario in scenarios_list:
             # Get the scenario color from color manager
-            base_color = color_manager.get_color(scenario)
+            base_color = color_manager.get_color(scenario, ColorCategory.SCENARIO)
             r, g, b, _ = color_manager._str_to_rgba(base_color)
 
             # Determine if scenario is selected

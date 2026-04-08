@@ -2,9 +2,9 @@
 
 import pytest
 
-from stride.ui.tui import (
+from stride.config import get_stride_config_path
+from stride.ui.palette_utils import (
     get_default_user_palette,
-    get_stride_config_path,
     load_user_palette,
     save_user_palette,
     set_default_user_palette,
@@ -20,7 +20,7 @@ def test_user_palette_save_and_load(tmp_path, monkeypatch) -> None:  # type: ign
     def mock_get_user_palette_dir():  # type: ignore[no-untyped-def]
         return palette_dir
 
-    monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", mock_get_user_palette_dir)
+    monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", mock_get_user_palette_dir)
 
     # Create a test palette
     test_palette = {
@@ -54,8 +54,8 @@ def test_set_and_get_default_palette(tmp_path, monkeypatch) -> None:  # type: ig
     def mock_get_user_palette_dir():  # type: ignore[no-untyped-def]
         return palette_dir
 
-    monkeypatch.setattr("stride.ui.tui.get_stride_config_dir", mock_get_stride_config_dir)
-    monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", mock_get_user_palette_dir)
+    monkeypatch.setattr("stride.config.get_stride_config_dir", mock_get_stride_config_dir)
+    monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", mock_get_user_palette_dir)
 
     # Create a test palette file
     test_palette = {"Residential": "#FF0000"}
@@ -92,8 +92,8 @@ def test_set_default_nonexistent_palette(tmp_path, monkeypatch) -> None:  # type
     def mock_get_user_palette_dir():  # type: ignore[no-untyped-def]
         return palette_dir
 
-    monkeypatch.setattr("stride.ui.tui.get_stride_config_dir", mock_get_stride_config_dir)
-    monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", mock_get_user_palette_dir)
+    monkeypatch.setattr("stride.config.get_stride_config_dir", mock_get_stride_config_dir)
+    monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", mock_get_user_palette_dir)
 
     # Try to set a non-existent palette as default
     with pytest.raises(FileNotFoundError, match="not found"):
@@ -115,8 +115,8 @@ def test_config_persistence(tmp_path, monkeypatch) -> None:  # type: ignore[no-u
     def mock_get_user_palette_dir():  # type: ignore[no-untyped-def]
         return palette_dir
 
-    monkeypatch.setattr("stride.ui.tui.get_stride_config_dir", mock_get_stride_config_dir)
-    monkeypatch.setattr("stride.ui.tui.get_user_palette_dir", mock_get_user_palette_dir)
+    monkeypatch.setattr("stride.config.get_stride_config_dir", mock_get_stride_config_dir)
+    monkeypatch.setattr("stride.ui.palette_utils.get_user_palette_dir", mock_get_user_palette_dir)
 
     # Create test palettes
     save_user_palette("palette1", {"Label1": "#FF0000"})

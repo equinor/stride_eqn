@@ -30,7 +30,7 @@ from stride.models import (
     ProjectConfig,
     Scenario,
 )
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 CONFIG_FILE = "project.json5"
 DATABASE_FILE = "data.duckdb"
@@ -271,34 +271,35 @@ class Project:
         >>> project.save_palette()
         """
         if self._palette is None:
-            self._palette = ColorPalette(self._config.color_palette)
+            self._palette = ColorPalette.from_dict(self._config.color_palette)
             self._auto_populate_palette()
         return self._palette
 
     def _auto_populate_palette(self) -> None:
-        """Auto-populate palette with scenarios and model_years from config if not already present."""
+        """Auto-populate palette with scenarios and model_years from config.
+
+        Uses merge logic so that existing name→color mappings are preserved,
+        new project dimensions get unused theme colors, and extra palette
+        entries are kept as reserves.
+        """
         if self._palette is None:
             return
 
-        # Auto-populate scenarios from config
         scenario_names = [scenario.name for scenario in self._config.scenarios]
-        for name in scenario_names:
-            if name not in self._palette.scenarios:
-                self._palette.update(name, category="scenarios")
-
-        # Auto-populate model_years from config
-        model_years = self._config.list_model_years()
-        for year in model_years:
-            year_str = str(year)
-            if year_str not in self._palette.model_years:
-                self._palette.update(year_str, category="model_years")
+        model_years = [str(y) for y in self._config.list_model_years()]
+        self._palette.merge_with_project_dimensions(
+            scenarios=scenario_names,
+            model_years=model_years,
+        )
 
     def populate_palette_metrics(self) -> None:
         """Populate the palette with all metrics (sectors and end uses) from the database.
 
-        This method queries the database for unique sectors and end uses and adds them
-        to the metrics category of the palette. It's called automatically during project
-        creation, but can be called manually to refresh the palette after updates.
+        Uses merge logic to preserve existing color assignments, assign unused
+        theme colors to new entries, and retain extra palette entries as reserves.
+
+        This method is called automatically during project creation, but can be
+        called manually to refresh the palette after updates.
 
         Examples
         --------
@@ -314,19 +315,14 @@ class Project:
 
         api_client = APIClient(self)
 
-        # Get all unique sectors and end uses from the database
         sectors = api_client.get_unique_sectors()
         end_uses = api_client.get_unique_end_uses()
 
-        # Add sectors to metrics category
-        for sector in sectors:
-            if self._palette is not None and sector not in self._palette.metrics:
-                self._palette.update(sector, category="metrics")
-
-        # Add end uses to metrics category
-        for end_use in end_uses:
-            if self._palette is not None and end_use not in self._palette.metrics:
-                self._palette.update(end_use, category="metrics")
+        if self._palette is not None:
+            self._palette.merge_with_project_dimensions(
+                sectors=sectors,
+                end_uses=end_uses,
+            )
 
     def refresh_palette_colors(self) -> None:
         """Refresh all palette colors to use the correct themes for each category.
@@ -347,9 +343,10 @@ class Project:
 
         # Refresh colors for each category using the correct theme
         if self._palette is not None:
-            self._palette.refresh_category_colors("scenarios")
-            self._palette.refresh_category_colors("model_years")
-            self._palette.refresh_category_colors("metrics")
+            self._palette.refresh_category_colors(ColorCategory.SCENARIO)
+            self._palette.refresh_category_colors(ColorCategory.MODEL_YEAR)
+            self._palette.refresh_category_colors(ColorCategory.SECTOR)
+            self._palette.refresh_category_colors(ColorCategory.END_USE)
 
     def save_palette(self) -> None:
         """Save the current palette state back to the project conig file."""

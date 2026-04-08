@@ -135,13 +135,51 @@ body {
     color: var(--text-primary) !important;
 }
 
-/* Sidebar dropdown theming */
-.light-theme #sidebar .Select-control {
+/* Sidebar dropdown theming - use light theme variables to match sidebar background */
+.light-theme #sidebar .dash-dropdown {
+    --Dash-Fill-Inverse-Strong: var(--bg-primary);
+    --Dash-Text-Strong: var(--text-primary);
+    --Dash-Text-Weak: var(--text-secondary);
+    --Dash-Text-Disabled: var(--text-muted);
+    --Dash-Stroke-Strong: var(--border-color);
+    --Dash-Shading-Strong: var(--border-hover);
+    --Dash-Shading-Weak: var(--border-color);
+    --Dash-Fill-Interactive-Strong: var(--accent-primary);
+    --Dash-Fill-Interactive-Weak: var(--bg-hover);
+}
+
+.light-theme #sidebar .dash-dropdown-trigger {
     background-color: var(--bg-primary) !important;
     border-color: var(--border-color) !important;
 }
 
-.light-theme #sidebar .Select-value-label {
+.light-theme #sidebar .dash-dropdown-value {
+    color: var(--text-primary) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-placeholder {
+    color: var(--text-muted) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-content {
+    background-color: var(--bg-primary) !important;
+    border-color: var(--border-color) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-option {
+    background-color: var(--bg-primary) !important;
+    color: var(--text-primary) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-option:hover {
+    background-color: var(--bg-hover) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-trigger-icon {
+    color: var(--text-muted) !important;
+}
+
+.light-theme #sidebar .dash-dropdown-search {
     color: var(--text-primary) !important;
 }
 
@@ -245,35 +283,39 @@ body {
    DROPDOWNS & INPUTS
    ============================================ */
 
-.light-theme .Select-control,
-.light-theme .dash-dropdown .Select-control {
+
+.light-theme .dash-dropdown-trigger {
     background-color: var(--dropdown-bg) !important;
     border-color: var(--input-border) !important;
     color: var(--dropdown-text) !important;
 }
 
-.light-theme .Select-placeholder,
-.light-theme .Select-value-label {
+.light-theme .dash-dropdown-placeholder,
+.light-theme .dash-dropdown-value {
     color: var(--dropdown-text) !important;
 }
 
-.light-theme .Select-menu-outer {
+.light-theme .dash-dropdown-content {
     background-color: var(--dropdown-bg) !important;
     border-color: var(--input-border) !important;
 }
 
-.light-theme .Select-option {
+.light-theme .dash-dropdown-option {
     background-color: var(--dropdown-bg) !important;
     color: var(--dropdown-text) !important;
 }
 
-.light-theme .Select-option:hover {
+.light-theme .dash-dropdown-option:hover {
     background-color: var(--dropdown-hover) !important;
 }
 
-.light-theme .Select-option.is-selected {
+.light-theme .dash-dropdown-option[aria-selected="true"] {
     background-color: var(--accent-primary) !important;
     color: #ffffff !important;
+}
+
+.light-theme .dash-dropdown-search {
+    color: var(--dropdown-text) !important;
 }
 
 /* Dash Bootstrap Components Dropdowns */
@@ -368,6 +410,10 @@ body {
 }
 
 .light-theme .btn-outline-danger.theme-text {
+    color: #212529 !important;
+}
+
+.light-theme .btn-outline-secondary.theme-text {
     color: #212529 !important;
 }
 

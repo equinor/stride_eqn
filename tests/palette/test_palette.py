@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 
 
 class TestColorPaletteInitialization:
@@ -22,7 +22,7 @@ class TestColorPaletteInitialization:
             "residential": "#FF5733",
             "commercial": "#3498DB",
         }
-        palette = ColorPalette(palette=initial_colors)
+        palette = ColorPalette.from_dict(initial_colors)
         assert len(palette.palette) == 2
         assert palette.palette["residential"] == "#FF5733"
         assert palette.palette["commercial"] == "#3498DB"
@@ -33,7 +33,7 @@ class TestColorPaletteInitialization:
             "residential": "not_a_color",
             "commercial": "#3498DB",
         }
-        palette = ColorPalette(palette=initial_colors)
+        palette = ColorPalette.from_dict(initial_colors)
         assert len(palette.palette) == 2
         assert palette.palette["commercial"] == "#3498DB"
         # Invalid color should be replaced with a generated one
@@ -46,26 +46,26 @@ class TestColorPaletteUpdate:
     def test_update_with_valid_hex(self) -> None:
         """Test updating with a valid hex color."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#FF5733"
 
     def test_update_with_valid_hex_alpha(self) -> None:
         """Test updating with a valid hex color with alpha."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733CC")
+        palette.update("residential", "#FF5733CC", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#FF5733CC"
 
     def test_update_with_none(self) -> None:
         """Test that None generates a new color."""
         palette = ColorPalette()
-        palette.update("residential", None)
+        palette.update("residential", None, category=ColorCategory.SECTOR)
         assert "residential" in palette.palette
         assert palette.palette["residential"] is not None
 
     def test_update_with_invalid_string(self) -> None:
         """Test that invalid color strings generate new colors."""
         palette = ColorPalette()
-        palette.update("residential", "not_a_hex")
+        palette.update("residential", "not_a_hex", category=ColorCategory.SECTOR)
         assert "residential" in palette.palette
         assert palette.palette["residential"] != "not_a_hex"
 
@@ -73,13 +73,13 @@ class TestColorPaletteUpdate:
         """Test that non-string keys raise TypeError."""
         palette = ColorPalette()
         with pytest.raises(TypeError, match="Key must be a string"):
-            palette.update(123, "#FF5733")  # type: ignore[arg-type]
+            palette.update(123, "#FF5733", category=ColorCategory.SECTOR)  # type: ignore[arg-type]
 
     def test_update_overwrites_existing(self) -> None:
         """Test that update overwrites existing colors."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
-        palette.update("residential", "#3498DB")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette.update("residential", "#3498DB", category=ColorCategory.SECTOR)
         assert palette.palette["residential"] == "#3498DB"
 
 
@@ -89,7 +89,7 @@ class TestColorPaletteGet:
     def test_get_existing_color(self) -> None:
         """Test getting an existing color."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         color = palette.get("residential")
         assert color == "#FF5733"
 
@@ -115,8 +115,8 @@ class TestColorPalettePop:
     def test_pop_existing_key(self) -> None:
         """Test popping an existing key."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733")
-        color = palette.pop("residential")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        color = palette.pop("residential", category=ColorCategory.SECTOR)
         assert color == "#FF5733"
         assert "residential" not in palette.palette
 
@@ -124,7 +124,7 @@ class TestColorPalettePop:
         """Test that popping a nonexistent key raises KeyError."""
         palette = ColorPalette()
         with pytest.raises(KeyError, match="unable to remove key"):
-            palette.pop("nonexistent")
+            palette.pop("nonexistent", category=ColorCategory.SECTOR)
 
 
 class TestColorPaletteFromDict:
@@ -171,31 +171,33 @@ class TestColorPaletteToDict:
         palette = ColorPalette()
         result = palette.to_dict()
         assert isinstance(result, dict)
-        # Structured format has 3 categories
-        assert len(result) == 3
+        # Structured format has 4 categories
+        assert len(result) == 4
         assert "scenarios" in result
         assert "model_years" in result
-        assert "metrics" in result
+        assert "sectors" in result
+        assert "end_uses" in result
         assert len(result["scenarios"]) == 0
         assert len(result["model_years"]) == 0
-        assert len(result["metrics"]) == 0
+        assert len(result["sectors"]) == 0
+        assert len(result["end_uses"]) == 0
 
     def test_to_dict_with_colors(self) -> None:
         """Test converting palette with colors to dict."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733", category="metrics")
-        palette.update("commercial", "#3498DB", category="metrics")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette.update("commercial", "#3498DB", category=ColorCategory.SECTOR)
         result = palette.to_dict()
-        assert "metrics" in result
-        assert result["metrics"]["residential"] == "#FF5733"
-        assert result["metrics"]["commercial"] == "#3498DB"
+        assert "sectors" in result
+        assert result["sectors"]["residential"] == "#FF5733"
+        assert result["sectors"]["commercial"] == "#3498DB"
 
     def test_to_dict_returns_copy(self) -> None:
         """Test that to_dict returns a copy, not the original dict."""
         palette = ColorPalette()
-        palette.update("residential", "#FF5733", category="metrics")
+        palette.update("residential", "#FF5733", category=ColorCategory.SECTOR)
         result = palette.to_dict()
-        result["metrics"]["new_key"] = "#000000"
+        result["sectors"]["new_key"] = "#000000"
         assert "new_key" not in palette.palette
 
 
@@ -205,9 +207,9 @@ class TestColorPaletteRoundTrip:
     def test_round_trip_preserves_colors(self) -> None:
         """Test that to_dict and from_dict preserve colors."""
         original = ColorPalette()
-        original.update("residential", "#FF5733")
-        original.update("commercial", "#3498DB")
-        original.update("industrial", "#2ECC71")
+        original.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        original.update("commercial", "#3498DB", category=ColorCategory.SECTOR)
+        original.update("industrial", "#2ECC71", category=ColorCategory.SECTOR)
 
         # Serialize and deserialize
         dict_repr = original.to_dict()
@@ -239,8 +241,8 @@ class TestColorPaletteColorGeneration:
         palette1 = ColorPalette()
         palette2 = ColorPalette()
 
-        palette1.update("residential", "#FF5733")
-        palette2.update("residential", "#3498DB")
+        palette1.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        palette2.update("residential", "#3498DB", category=ColorCategory.SECTOR)
 
         assert palette1.get("residential") == "#FF5733"
         assert palette2.get("residential") == "#3498DB"
@@ -252,44 +254,44 @@ class TestColorPaletteHexValidation:
     def test_valid_6_digit_hex(self) -> None:
         """Test that 6-digit hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#FF5733")
+        palette.update("test", "#FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#FF5733"
 
     def test_valid_8_digit_hex(self) -> None:
         """Test that 8-digit hex colors (with alpha) are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#FF5733CC")
+        palette.update("test", "#FF5733CC", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#FF5733CC"
 
     def test_lowercase_hex(self) -> None:
         """Test that lowercase hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#ff5733")
+        palette.update("test", "#ff5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#ff5733"
 
     def test_mixed_case_hex(self) -> None:
         """Test that mixed case hex colors are accepted."""
         palette = ColorPalette()
-        palette.update("test", "#Ff5733")
+        palette.update("test", "#Ff5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] == "#Ff5733"
 
     def test_invalid_short_hex(self) -> None:
         """Test that short hex colors are rejected."""
         palette = ColorPalette()
-        palette.update("test", "#F57")
+        palette.update("test", "#F57", category=ColorCategory.SECTOR)
         # Should be replaced with auto-generated color
         assert palette.palette["test"] != "#F57"
 
     def test_invalid_no_hash(self) -> None:
         """Test that colors without # are rejected."""
         palette = ColorPalette()
-        palette.update("test", "FF5733")
+        palette.update("test", "FF5733", category=ColorCategory.SECTOR)
         assert palette.palette["test"] != "FF5733"
 
     def test_invalid_non_hex_chars(self) -> None:
         """Test that non-hex characters are rejected."""
         palette = ColorPalette()
-        palette.update("test", "#GGGGGG")
+        palette.update("test", "#GGGGGG", category=ColorCategory.SECTOR)
         assert palette.palette["test"] != "#GGGGGG"
 
 
@@ -382,25 +384,26 @@ class TestColorPaletteGroupedItems:
         palette = {
             "scenarios": {"baseline": "#0000FF"},
             "model_years": {},
-            "metrics": {"heating": "#FF0000", "cooling": "#00FF00"},
+            "sectors": {"heating": "#FF0000", "cooling": "#00FF00"},
+            "end_uses": {},
         }
 
         result = ColorPalette.palette_to_grouped_items(palette)
 
-        assert "Metrics" in result
+        assert "Sectors" in result
         assert "Scenarios" in result
-        assert len(result["Metrics"]) == 2
+        assert len(result["Sectors"]) == 2
         assert len(result["Scenarios"]) == 1
-        assert result["Metrics"][0]["label"] == "heating"
-        assert result["Metrics"][0]["color"] == "#FF0000"
-        assert result["Metrics"][0]["order"] == 0
-        assert result["Metrics"][1]["label"] == "cooling"
-        assert result["Metrics"][1]["order"] == 1
+        assert result["Sectors"][0]["label"] == "heating"
+        assert result["Sectors"][0]["color"] == "#FF0000"
+        assert result["Sectors"][0]["order"] == 0
+        assert result["Sectors"][1]["label"] == "cooling"
+        assert result["Sectors"][1]["order"] == 1
 
     def test_grouped_items_to_palette(self) -> None:
         """Test converting grouped items back to structured palette."""
         grouped_items: dict[str, list[dict[str, Any]]] = {
-            "Metrics": [
+            "Sectors": [
                 {"label": "heating", "color": "#FF0000", "order": 0},
                 {"label": "cooling", "color": "#00FF00", "order": 1},
             ],
@@ -411,15 +414,15 @@ class TestColorPaletteGroupedItems:
 
         result = ColorPalette.grouped_items_to_palette(grouped_items)
 
-        assert len(result) == 3
-        assert result["metrics"]["heating"] == "#FF0000"
-        assert result["metrics"]["cooling"] == "#00FF00"
+        assert len(result) == 4
+        assert result["sectors"]["heating"] == "#FF0000"
+        assert result["sectors"]["cooling"] == "#00FF00"
         assert result["scenarios"]["baseline"] == "#0000FF"
 
     def test_grouped_items_preserves_order(self) -> None:
         """Test that grouped items respects custom ordering."""
         grouped_items: dict[str, list[dict[str, Any]]] = {
-            "Metrics": [
+            "Sectors": [
                 {"label": "heating", "color": "#FF0000", "order": 1},
                 {"label": "cooling", "color": "#00FF00", "order": 0},
             ],
@@ -428,7 +431,7 @@ class TestColorPaletteGroupedItems:
         result = ColorPalette.grouped_items_to_palette(grouped_items)
 
         # Convert back to list to check order
-        keys = list(result["metrics"].keys())
+        keys = list(result["sectors"].keys())
         # cooling should come first because it has order 0
         assert keys[0] == "cooling"
         assert keys[1] == "heating"
@@ -438,7 +441,8 @@ class TestColorPaletteGroupedItems:
         palette = {
             "scenarios": {"baseline": "#0000FF"},
             "model_years": {},
-            "metrics": {"heating": "#FF0000", "cooling": "#00FF00"},
+            "sectors": {"heating": "#FF0000", "cooling": "#00FF00"},
+            "end_uses": {},
         }
 
         # Convert to grouped items
@@ -451,19 +455,276 @@ class TestColorPaletteGroupedItems:
 
         # Should have same items (order might differ)
         assert result["scenarios"]["baseline"] == palette["scenarios"]["baseline"]
-        assert result["metrics"]["heating"] == palette["metrics"]["heating"]
-        assert result["metrics"]["cooling"] == palette["metrics"]["cooling"]
+        assert result["sectors"]["heating"] == palette["sectors"]["heating"]
+        assert result["sectors"]["cooling"] == palette["sectors"]["cooling"]
 
     def test_empty_groups(self) -> None:
         """Test handling of empty groups."""
         palette: dict[str, dict[str, str]] = {
             "scenarios": {},
             "model_years": {},
-            "metrics": {},
+            "sectors": {},
+            "end_uses": {},
         }
 
         result: dict[str, list[dict[str, Any]]] = ColorPalette.palette_to_grouped_items(palette)
         assert result == {}
 
         back = ColorPalette.grouped_items_to_palette(result)
-        assert back == {"scenarios": {}, "model_years": {}, "metrics": {}}
+        assert back == {"scenarios": {}, "model_years": {}, "sectors": {}, "end_uses": {}}
+
+
+class TestLegacyMetricsCompat:
+    """Test backward compatibility with the legacy 'metrics' key format."""
+
+    def test_init_with_legacy_metrics_key(self) -> None:
+        """Test that from_dict loads legacy 'metrics' entries into sectors."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#0000FF"},
+                "model_years": {},
+                "metrics": {"residential": "#FF0000", "commercial": "#00FF00"},
+            }
+        )
+        assert palette.sectors["residential"] == "#FF0000"
+        assert palette.sectors["commercial"] == "#00FF00"
+        assert palette.scenarios["baseline"] == "#0000FF"
+
+    def test_from_dict_with_legacy_metrics_key(self) -> None:
+        """Test that from_dict loads legacy 'metrics' into sectors."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {},
+                "model_years": {},
+                "metrics": {"heating": "#FF0000"},
+            }
+        )
+        assert palette.sectors["heating"] == "#FF0000"
+        assert len(palette.end_uses) == 0
+
+    def test_to_dict_emits_new_format(self) -> None:
+        """Test that to_dict outputs the new 4-key format even after loading legacy."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {},
+                "model_years": {},
+                "metrics": {"heating": "#FF0000"},
+            }
+        )
+        result = palette.to_dict()
+        assert "sectors" in result
+        assert "end_uses" in result
+        assert "metrics" not in result
+        assert result["sectors"]["heating"] == "#FF0000"
+
+    def test_to_dict_legacy_emits_old_format(self) -> None:
+        """Test that to_dict_legacy merges sectors and end_uses under 'metrics'."""
+        palette = ColorPalette()
+        palette.update("residential", "#FF0000", category=ColorCategory.SECTOR)
+        palette.update("heating", "#00FF00", category=ColorCategory.END_USE)
+        result = palette.to_dict_legacy()
+        assert "metrics" in result
+        assert "sectors" not in result
+        assert "end_uses" not in result
+        assert result["metrics"]["residential"] == "#FF0000"
+        assert result["metrics"]["heating"] == "#00FF00"
+
+    def test_init_with_new_4key_format(self) -> None:
+        """Test that from_dict accepts the new 4-key format."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#0000FF"},
+                "model_years": {"2020": "#AABBCC"},
+                "sectors": {"residential": "#FF0000"},
+                "end_uses": {"heating": "#00FF00"},
+            }
+        )
+        assert palette.scenarios["baseline"] == "#0000FF"
+        assert palette.model_years["2020"] == "#AABBCC"
+        assert palette.sectors["residential"] == "#FF0000"
+        assert palette.end_uses["heating"] == "#00FF00"
+
+    def test_palette_to_grouped_items_legacy_compat(self) -> None:
+        """Test that palette_to_grouped_items handles legacy 'metrics' key."""
+        palette = {
+            "scenarios": {},
+            "model_years": {},
+            "metrics": {"heating": "#FF0000", "cooling": "#00FF00"},
+        }
+        result = ColorPalette.palette_to_grouped_items(palette)
+        assert "Sectors" in result
+        assert len(result["Sectors"]) == 2
+
+
+class TestMergeWithProjectDimensions:
+    """Test ColorPalette.merge_with_project_dimensions."""
+
+    def test_matched_names_keep_colors(self) -> None:
+        """Entries in both palette and project keep their stored color."""
+        palette = ColorPalette.from_dict(
+            {"scenarios": {"baseline": "#AA0000", "high": "#BB0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+        )
+        palette.merge_with_project_dimensions(scenarios=["baseline", "high"])
+        assert palette.scenarios["baseline"] == "#AA0000"
+        assert palette.scenarios["high"] == "#BB0000"
+
+    def test_new_project_names_get_colors(self) -> None:
+        """Names in the project but not in the palette get auto-assigned colors."""
+        palette = ColorPalette.from_dict(
+            {"scenarios": {"baseline": "#AA0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+        )
+        palette.merge_with_project_dimensions(scenarios=["baseline", "new_scenario"])
+        assert palette.scenarios["baseline"] == "#AA0000"
+        assert "new_scenario" in palette.scenarios
+        # New scenario should get a color different from the matched one
+        assert palette.scenarios["new_scenario"] != "#AA0000"
+
+    def test_extra_palette_entries_become_reserves(self) -> None:
+        """Palette entries not in the project are kept as reserves at the end."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#AA0000", "old_scenario": "#BB0000"},
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
+        )
+        palette.merge_with_project_dimensions(scenarios=["baseline"])
+        keys = list(palette.scenarios.keys())
+        # Active entry first, reserve after
+        assert keys[0] == "baseline"
+        assert keys[1] == "old_scenario"
+        # Colors preserved
+        assert palette.scenarios["baseline"] == "#AA0000"
+        assert palette.scenarios["old_scenario"] == "#BB0000"
+
+    def test_reserve_colors_reused_before_theme(self) -> None:
+        """New names should get reserve colors before cycling through the theme."""
+        from stride.ui.palette import TOL_BRIGHT
+
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"old_one": TOL_BRIGHT[0], "old_two": TOL_BRIGHT[1]},
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
+        )
+        # Project has neither old name — both become reserves.
+        # Two new names should reuse the reserve colors.
+        palette.merge_with_project_dimensions(scenarios=["alpha", "beta"])
+        assert palette.scenarios["alpha"] == TOL_BRIGHT[0]
+        assert palette.scenarios["beta"] == TOL_BRIGHT[1]
+        # Reserves still at the end
+        assert list(palette.scenarios.keys()) == ["alpha", "beta", "old_one", "old_two"]
+
+    def test_mixed_match_and_reserve_reuse(self) -> None:
+        """Mix of matched, reserve-reuse, and fresh theme colors."""
+        from stride.ui.palette import TOL_BRIGHT
+
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {
+                    "baseline": TOL_BRIGHT[0],
+                    "removed": TOL_BRIGHT[1],
+                },
+                "model_years": {},
+                "sectors": {},
+                "end_uses": {},
+            }
+        )
+        # "baseline" matches, "removed" becomes reserve, "new_one" is new.
+        palette.merge_with_project_dimensions(scenarios=["baseline", "new_one"])
+        assert palette.scenarios["baseline"] == TOL_BRIGHT[0]
+        # "new_one" should get the reserve color (TOL_BRIGHT[1]) before theme cycling
+        assert palette.scenarios["new_one"] == TOL_BRIGHT[1]
+        # "removed" is kept as reserve
+        assert "removed" in palette.scenarios
+
+    def test_multiple_categories(self) -> None:
+        """Merge works across multiple categories simultaneously."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {},
+                "sectors": {"residential": "#110000"},
+                "end_uses": {"heating": "#220000"},
+            }
+        )
+        palette.merge_with_project_dimensions(
+            scenarios=["baseline", "new_sc"],
+            sectors=["residential", "commercial"],
+            end_uses=["heating", "cooling"],
+        )
+        assert "new_sc" in palette.scenarios
+        assert "commercial" in palette.sectors
+        assert "cooling" in palette.end_uses
+        # Originals preserved
+        assert palette.scenarios["baseline"] == "#AA0000"
+        assert palette.sectors["residential"] == "#110000"
+        assert palette.end_uses["heating"] == "#220000"
+
+    def test_none_categories_skipped(self) -> None:
+        """Passing None for a category leaves it untouched."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {},
+                "sectors": {"residential": "#110000"},
+                "end_uses": {},
+            }
+        )
+        palette.merge_with_project_dimensions(scenarios=["baseline"])
+        # Sectors untouched (None was passed)
+        assert palette.sectors == {"residential": "#110000"}
+
+    def test_case_insensitive_matching(self) -> None:
+        """Merge normalizes names to lowercase for matching."""
+        palette = ColorPalette.from_dict(
+            {"scenarios": {"baseline": "#AA0000"}, "model_years": {}, "sectors": {}, "end_uses": {}}
+        )
+        palette.merge_with_project_dimensions(scenarios=["Baseline"])
+        assert palette.scenarios["baseline"] == "#AA0000"
+        assert len(palette.scenarios) == 1
+
+
+class TestUpdateRequiresCategory:
+    """Test that update() and pop() require an explicit category."""
+
+    def test_update_requires_category(self) -> None:
+        """Calling update() without category should raise TypeError."""
+        palette = ColorPalette()
+        with pytest.raises(TypeError):
+            palette.update("baseline", "#AA0000")  # type: ignore[call-arg]
+
+    def test_pop_requires_category(self) -> None:
+        """Calling pop() without category should raise TypeError."""
+        palette = ColorPalette()
+        palette.update("baseline", "#AA0000", category=ColorCategory.SCENARIO)
+        with pytest.raises(TypeError):
+            palette.pop("baseline")  # type: ignore[call-arg]
+
+    def test_duplicate_label_across_categories(self) -> None:
+        """Same label can exist in multiple categories independently."""
+        palette = ColorPalette()
+        palette.update("2025", "#AA0000", category=ColorCategory.MODEL_YEAR)
+        palette.update("2025", "#BB0000", category=ColorCategory.SECTOR)
+        assert palette.model_years["2025"] == "#AA0000"
+        assert palette.sectors["2025"] == "#BB0000"
+
+    def test_roundtrip_temp_edits_with_explicit_category(self) -> None:
+        """Simulate the save flow: copy palette, apply edits with category."""
+        palette = ColorPalette.from_dict(
+            {
+                "scenarios": {"baseline": "#AA0000"},
+                "model_years": {"2025": "#BB0000"},
+                "sectors": {"residential": "#CC0000"},
+                "end_uses": {"heating": "#DD0000"},
+            }
+        )
+        palette_copy = palette.copy()
+        palette_copy.update("2025", "#112233", category=ColorCategory.MODEL_YEAR)
+        palette_copy.update("residential", "#445566", category=ColorCategory.SECTOR)
+
+        assert palette_copy.model_years["2025"] == "#112233"
+        assert palette_copy.sectors["residential"] == "#445566"
