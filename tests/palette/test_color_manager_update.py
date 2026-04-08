@@ -48,10 +48,14 @@ def test_color_manager_updates_with_new_palette() -> None:
 
 def test_color_manager_singleton_behavior() -> None:
     """Test that ColorManager maintains singleton behavior."""
-    palette1 = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"A": "#111111"}})
+    palette1 = ColorPalette.from_dict(
+        {"scenarios": {}, "model_years": {}, "metrics": {"A": "#111111"}}
+    )
     cm1 = ColorManager(palette1)
 
-    palette2 = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"A": "#222222"}})
+    palette2 = ColorPalette.from_dict(
+        {"scenarios": {}, "model_years": {}, "metrics": {"A": "#222222"}}
+    )
     cm2 = ColorManager(palette2)
 
     # Should be the same instance
@@ -169,7 +173,9 @@ def test_color_manager_scenario_styling_updates() -> None:
 
 def test_color_manager_preserves_palette_reference() -> None:
     """Test that ColorManager properly references the provided palette."""
-    palette = ColorPalette.from_dict({"scenarios": {}, "model_years": {}, "metrics": {"Label": "#123456"}})
+    palette = ColorPalette.from_dict(
+        {"scenarios": {}, "model_years": {}, "metrics": {"Label": "#123456"}}
+    )
     cm = ColorManager(palette)
 
     # Get the palette back
