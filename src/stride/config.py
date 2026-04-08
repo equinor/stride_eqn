@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+CACHED_PROJECTS_UPPER_BOUND = 10
+DEFAULT_MAX_CACHED_PROJECTS = 3
+
 
 def get_stride_config_dir() -> Path:
     """Get the stride configuration directory, creating it if necessary.
@@ -74,7 +77,10 @@ def get_max_cached_projects() -> int | None:
     config = load_stride_config()
     value = config.get("max_cached_projects")
     if value is not None:
-        return int(value)
+        try:
+            return max(1, min(CACHED_PROJECTS_UPPER_BOUND, int(value)))
+        except (TypeError, ValueError):
+            return None
     return None
 
 
@@ -84,9 +90,9 @@ def set_max_cached_projects(n: int) -> None:
     Parameters
     ----------
     n : int
-        Number of max cached projects (will be clamped to [1, 10])
+        Number of max cached projects (will be clamped to [1, CACHED_PROJECTS_UPPER_BOUND])
     """
-    n = max(1, min(10, n))
+    n = max(1, min(CACHED_PROJECTS_UPPER_BOUND, n))
     config = load_stride_config()
     config["max_cached_projects"] = n
     save_stride_config(config)

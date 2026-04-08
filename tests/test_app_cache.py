@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from stride.config import CACHED_PROJECTS_UPPER_BOUND
 from stride.ui import app as app_module
 
 
@@ -94,9 +95,9 @@ class TestGetMaxCachedProjects:
         assert app_module.get_max_cached_projects() == 1
 
     def test_clamped_to_maximum(self) -> None:
-        """Values above 10 should be clamped to 10."""
+        """Values above CACHED_PROJECTS_UPPER_BOUND should be clamped."""
         app_module._max_cached_projects_override = 99
-        assert app_module.get_max_cached_projects() == 10
+        assert app_module.get_max_cached_projects() == CACHED_PROJECTS_UPPER_BOUND
 
     def test_env_var_clamped(self) -> None:
         """Env var out of range should be clamped."""
@@ -329,10 +330,12 @@ class TestGetLoadedProjectOptions:
 # ===================================================================
 
 
-def test_max_cached_projects_is_positive_int() -> None:
-    """Sanity check: MAX_CACHED_PROJECTS should be a small positive integer."""
-    assert isinstance(app_module.MAX_CACHED_PROJECTS, int)
-    assert app_module.MAX_CACHED_PROJECTS > 0
+def test_default_max_cached_projects_is_positive_int() -> None:
+    """Sanity check: DEFAULT_MAX_CACHED_PROJECTS should be a small positive integer."""
+    from stride.config import DEFAULT_MAX_CACHED_PROJECTS
+
+    assert isinstance(DEFAULT_MAX_CACHED_PROJECTS, int)
+    assert DEFAULT_MAX_CACHED_PROJECTS > 0
 
 
 # ===================================================================
@@ -478,7 +481,7 @@ class TestRefreshDropdownLogic:
 
 
 # ===================================================================
-# Tests for config round-trip (tui.py helpers)
+# Tests for config round-trip (config.py helpers)
 # ===================================================================
 
 
@@ -488,49 +491,49 @@ class TestConfigMaxCachedProjects:
     def test_round_trip(self, tmp_path: Path) -> None:
         """set_max_cached_projects(n) -> get_max_cached_projects() should return n."""
         from stride.config import (
-            get_max_cached_projects as tui_get,
-            set_max_cached_projects as tui_set,
+            get_max_cached_projects as cfg_get,
+            set_max_cached_projects as cfg_set,
         )
 
         config_file = tmp_path / "config.json"
         with patch("stride.config.get_stride_config_path", return_value=config_file):
             # Initially no config file
-            assert tui_get() is None
+            assert cfg_get() is None
 
             # Set a value
-            tui_set(5)
-            assert tui_get() == 5
+            cfg_set(5)
+            assert cfg_get() == 5
 
             # Update the value
-            tui_set(8)
-            assert tui_get() == 8
+            cfg_set(8)
+            assert cfg_get() == 8
 
     def test_set_clamps_to_range(self, tmp_path: Path) -> None:
-        """set_max_cached_projects should clamp values to [1, 10]."""
+        """set_max_cached_projects should clamp values to [1, CACHED_PROJECTS_UPPER_BOUND]."""
         from stride.config import (
-            get_max_cached_projects as tui_get,
-            set_max_cached_projects as tui_set,
+            get_max_cached_projects as cfg_get,
+            set_max_cached_projects as cfg_set,
         )
 
         config_file = tmp_path / "config.json"
         with patch("stride.config.get_stride_config_path", return_value=config_file):
-            tui_set(0)
-            assert tui_get() == 1
+            cfg_set(0)
+            assert cfg_get() == 1
 
-            tui_set(99)
-            assert tui_get() == 10
+            cfg_set(99)
+            assert cfg_get() == CACHED_PROJECTS_UPPER_BOUND
 
     def test_set_preserves_other_config(self, tmp_path: Path) -> None:
         """set_max_cached_projects should not clobber other config keys."""
         import json
 
-        from stride.config import set_max_cached_projects as tui_set
+        from stride.config import set_max_cached_projects as cfg_set
 
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"default_user_palette": "my_palette"}))
 
         with patch("stride.config.get_stride_config_path", return_value=config_file):
-            tui_set(7)
+            cfg_set(7)
 
         saved = json.loads(config_file.read_text())
         assert saved["max_cached_projects"] == 7

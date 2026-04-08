@@ -56,6 +56,13 @@ By default, STRIDE keeps up to 3 projects open simultaneously. Each open project
 
 You can configure this limit via three methods (highest priority first):
 
+### Settings UI
+
+Open the sidebar, click **Settings**, and adjust the **Max Cached Projects** value in the General section.
+This persists the setting to `~/.stride/config.json`.
+
+Valid range is 1–10. The default is 3.
+
 ### CLI Flag
 
 ```{eval-rst}
@@ -73,10 +80,3 @@ You can configure this limit via three methods (highest priority first):
 
    $ STRIDE_MAX_CACHED_PROJECTS=5 stride view my_project
 ```
-
-### Settings UI
-
-Open the sidebar, click **Settings**, and adjust the **Max Cached Projects** value in the General section.
-This persists the setting to `~/.stride/config.json`.
-
-Valid range is 1–10. The default is 3.

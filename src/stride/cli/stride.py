@@ -10,6 +10,7 @@ from dsgrid.exceptions import DSGBaseException
 from loguru import logger
 
 from stride import Project
+from stride.config import CACHED_PROJECTS_UPPER_BOUND
 from stride.models import CalculatedTableOverride
 from stride.project import list_valid_countries, list_valid_model_years, list_valid_weather_years
 from stride.ui.palette_utils import list_user_palettes, set_palette_priority
@@ -639,9 +640,9 @@ def calculated_tables() -> None:
 )
 @click.option(
     "--max-cached-projects",
-    type=click.IntRange(1, 10),
+    type=click.IntRange(1, CACHED_PROJECTS_UPPER_BOUND),
     default=None,
-    help="Maximum number of projects to keep open simultaneously (1-10, default: 3)",
+    help=f"Maximum number of projects to keep open simultaneously (1-{CACHED_PROJECTS_UPPER_BOUND}, default: 3)",
 )
 @click.pass_context
 def view(

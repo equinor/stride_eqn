@@ -8,6 +8,7 @@ from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 from loguru import logger
 
+from stride.config import CACHED_PROJECTS_UPPER_BOUND, set_max_cached_projects
 from stride.ui.palette import ColorPalette
 from stride.ui.settings.layout import (
     clear_temp_color_edits,
@@ -955,14 +956,13 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 className="text-danger",
             )
 
-        if n < 1 or n > 10:
+        if n < 1 or n > CACHED_PROJECTS_UPPER_BOUND:
             return html.Div(
-                "✗ Value must be between 1 and 10",
+                f"✗ Value must be between 1 and {CACHED_PROJECTS_UPPER_BOUND}",
                 className="text-danger",
             )
 
         from stride.ui.app import _evict_oldest_project, set_max_cached_projects_override
-        from stride.config import set_max_cached_projects
 
         # Persist to config file
         set_max_cached_projects(n)

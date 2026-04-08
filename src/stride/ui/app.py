@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -30,7 +31,7 @@ from stride.ui.settings.layout import (
     get_temp_edits_for_category,
     parse_temp_edit_key,
 )
-from stride.config import get_max_cached_projects as _get_config_max_cached
+from stride.config import CACHED_PROJECTS_UPPER_BOUND, DEFAULT_MAX_CACHED_PROJECTS, get_max_cached_projects as _get_config_max_cached
 from stride.ui.palette_utils import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
@@ -55,7 +56,6 @@ _current_project_path: str | None = None
 # Maximum number of projects to keep open simultaneously.
 # Each open project holds a DuckDB connection with file descriptors;
 # on BlobFuse2 FUSE mounts too many concurrent connections cause [Errno 5].
-_DEFAULT_MAX_CACHED_PROJECTS = 3
 _max_cached_projects_override: int | None = None
 
 
@@ -63,25 +63,26 @@ def get_max_cached_projects() -> int:
     """Resolve the effective max cached projects value.
 
     Priority: CLI override > STRIDE_MAX_CACHED_PROJECTS env var > config file > default (3).
-    Result is clamped to [1, 10].
+    Result is clamped to [1, CACHED_PROJECTS_UPPER_BOUND].
     """
-    import os
-
     if _max_cached_projects_override is not None:
-        return max(1, min(10, _max_cached_projects_override))
+        return max(1, min(CACHED_PROJECTS_UPPER_BOUND, _max_cached_projects_override))
 
     env_val = os.environ.get("STRIDE_MAX_CACHED_PROJECTS")
     if env_val is not None:
         try:
-            return max(1, min(10, int(env_val)))
+            return max(1, min(CACHED_PROJECTS_UPPER_BOUND, int(env_val)))
         except ValueError:
-            pass
+            logger.warning(
+                f"Ignoring non-numeric STRIDE_MAX_CACHED_PROJECTS={env_val!r}, "
+                "falling back to config/default"
+            )
 
     config_val = _get_config_max_cached()
     if config_val is not None:
-        return max(1, min(10, config_val))
+        return config_val
 
-    return _DEFAULT_MAX_CACHED_PROJECTS
+    return DEFAULT_MAX_CACHED_PROJECTS
 
 
 def set_max_cached_projects_override(n: int | None) -> None:
@@ -94,10 +95,6 @@ def set_max_cached_projects_override(n: int | None) -> None:
     """
     global _max_cached_projects_override
     _max_cached_projects_override = n
-
-
-# Keep module-level attribute for backwards compatibility with tests
-MAX_CACHED_PROJECTS = _DEFAULT_MAX_CACHED_PROJECTS
 
 
 def _evict_oldest_project() -> None:
