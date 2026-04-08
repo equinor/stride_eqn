@@ -150,8 +150,8 @@ def create_settings_layout(
                                                     ),
                                                     html.Small(
                                                         "Number of projects to keep open simultaneously. "
-                                                        "Each open project holds a DuckDB connection; "
-                                                        "too many concurrent connections may cause errors on FUSE mounts.",
+                                                        "Each open project holds a database connection; "
+                                                        "too many concurrent connections may cause errors on network-mounted filesystems.",
                                                         className="text-muted",
                                                     ),
                                                     html.Div(

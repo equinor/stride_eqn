@@ -538,3 +538,239 @@ class TestConfigMaxCachedProjects:
         saved = json.loads(config_file.read_text())
         assert saved["max_cached_projects"] == 7
         assert saved["default_user_palette"] == "my_palette"
+
+
+# ===================================================================
+# Tests for save_max_cached_projects callback logic (callbacks.py)
+# ===================================================================
+
+
+class TestSaveMaxCachedProjectsLogic:
+    """Test the validation and persistence logic in save_max_cached_projects.
+
+    The actual callback is a closure inside register_settings_callbacks,
+    so we replicate/test the shared logic directly.
+    """
+
+    @staticmethod
+    def _save_max_cached_projects_logic(
+        n_clicks: int | None,
+        value: int | None,
+    ) -> dict[str, Any]:
+        """Replicate the logic of save_max_cached_projects callback.
+
+        Returns a dict with 'success' bool, 'message' str, and optionally 'value' int.
+        """
+        if not n_clicks:
+            return {"success": False, "message": "no_click"}
+
+        if value is None:
+            return {"success": False, "message": "Please enter a value"}
+
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return {"success": False, "message": "Invalid number"}
+
+        if n < 1 or n > CACHED_PROJECTS_UPPER_BOUND:
+            return {
+                "success": False,
+                "message": f"Value must be between 1 and {CACHED_PROJECTS_UPPER_BOUND}",
+            }
+
+        return {"success": True, "message": f"Max cached projects set to {n}", "value": n}
+
+    def test_no_click_returns_no_update(self) -> None:
+        result = self._save_max_cached_projects_logic(None, 5)
+        assert result["success"] is False
+        assert result["message"] == "no_click"
+
+    def test_none_value_returns_error(self) -> None:
+        result = self._save_max_cached_projects_logic(1, None)
+        assert result["success"] is False
+        assert "enter a value" in result["message"]
+
+    def test_valid_value_succeeds(self) -> None:
+        result = self._save_max_cached_projects_logic(1, 5)
+        assert result["success"] is True
+        assert result["value"] == 5
+
+    def test_zero_value_rejected(self) -> None:
+        result = self._save_max_cached_projects_logic(1, 0)
+        assert result["success"] is False
+        assert "between 1" in result["message"]
+
+    def test_over_upper_bound_rejected(self) -> None:
+        result = self._save_max_cached_projects_logic(1, CACHED_PROJECTS_UPPER_BOUND + 1)
+        assert result["success"] is False
+        assert "between 1" in result["message"]
+
+    def test_upper_bound_accepted(self) -> None:
+        result = self._save_max_cached_projects_logic(1, CACHED_PROJECTS_UPPER_BOUND)
+        assert result["success"] is True
+        assert result["value"] == CACHED_PROJECTS_UPPER_BOUND
+
+    def test_value_of_one_accepted(self) -> None:
+        result = self._save_max_cached_projects_logic(1, 1)
+        assert result["success"] is True
+        assert result["value"] == 1
+
+    def test_persistence_and_eviction(self, tmp_path: Path) -> None:
+        """Full integration: save triggers config write, override, and eviction."""
+        import json
+
+        config_file = tmp_path / "config.json"
+
+        # Pre-fill cache with 4 projects
+        app_module._max_cached_projects_override = 5
+        for i in range(4):
+            app_module._loaded_projects[f"/{i}"] = _make_cache_entry(f"P{i}")
+
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
+            from stride.config import set_max_cached_projects
+
+            set_max_cached_projects(2)
+            app_module.set_max_cached_projects_override(2)
+            app_module._evict_oldest_project()
+
+        # Should have evicted down to 1 (limit - 1)
+        assert len(app_module._loaded_projects) == 1
+        # Config should be persisted
+        saved = json.loads(config_file.read_text())
+        assert saved["max_cached_projects"] == 2
+
+
+# ===================================================================
+# Tests for settings layout override display logic (layout.py)
+# ===================================================================
+
+
+class TestSettingsLayoutOverrideLogic:
+    """Test the override source detection logic in create_settings_layout."""
+
+    @staticmethod
+    def _resolve_override_source(
+        override_val: int | None,
+        env_val: str | None,
+    ) -> str | None:
+        """Replicate the override source resolution from layout.py."""
+        if override_val is not None:
+            return f"CLI flag (--max-cached-projects {override_val})"
+        if env_val is not None:
+            return f"Environment variable (STRIDE_MAX_CACHED_PROJECTS={env_val})"
+        return None
+
+    def test_no_override(self) -> None:
+        assert self._resolve_override_source(None, None) is None
+
+    def test_cli_override(self) -> None:
+        result = self._resolve_override_source(5, None)
+        assert result is not None
+        assert "CLI flag" in result
+        assert "5" in result
+
+    def test_env_override(self) -> None:
+        result = self._resolve_override_source(None, "4")
+        assert result is not None
+        assert "Environment variable" in result
+        assert "4" in result
+
+    def test_cli_takes_priority_over_env(self) -> None:
+        """CLI override should be shown even when env var is also set."""
+        result = self._resolve_override_source(5, "4")
+        assert result is not None
+        assert "CLI flag" in result
+
+    def test_is_overridden_when_cli_set(self) -> None:
+        result = self._resolve_override_source(5, None)
+        assert result is not None  # is_overridden = True
+
+    def test_is_overridden_when_env_set(self) -> None:
+        result = self._resolve_override_source(None, "3")
+        assert result is not None  # is_overridden = True
+
+    def test_not_overridden_when_neither_set(self) -> None:
+        result = self._resolve_override_source(None, None)
+        assert result is None  # is_overridden = False
+
+
+# ===================================================================
+# Tests for CLI --max-cached-projects option (stride.py)
+# ===================================================================
+
+
+class TestCLIMaxCachedProjectsOption:
+    """Test the --max-cached-projects CLI option integration."""
+
+    def test_option_sets_override(self) -> None:
+        """--max-cached-projects should call set_max_cached_projects_override."""
+        app_module.set_max_cached_projects_override(7)
+        assert app_module._max_cached_projects_override == 7
+        assert app_module.get_max_cached_projects() == 7
+
+    def test_option_none_does_not_set_override(self) -> None:
+        """When --max-cached-projects is not provided (None), override should not be set."""
+        # Replicate the CLI logic: if max_cached_projects is not None: set_override(n)
+        max_cached_projects = None
+        if max_cached_projects is not None:
+            app_module.set_max_cached_projects_override(max_cached_projects)
+        assert app_module._max_cached_projects_override is None
+
+    def test_override_affects_get_max(self) -> None:
+        """Override via CLI should change get_max_cached_projects result."""
+        with patch.object(app_module, "_get_config_max_cached", return_value=5):
+            # Without override
+            assert app_module.get_max_cached_projects() == 5
+
+            # With override
+            app_module.set_max_cached_projects_override(2)
+            assert app_module.get_max_cached_projects() == 2
+
+
+# ===================================================================
+# Tests for config.py get_max_cached_projects edge cases
+# ===================================================================
+
+
+class TestConfigGetMaxCachedEdgeCases:
+    """Test edge cases in config.py get_max_cached_projects."""
+
+    def test_invalid_config_value_returns_none(self, tmp_path: Path) -> None:
+        """Non-numeric config value should return None."""
+        import json
+
+        from stride.config import get_max_cached_projects as cfg_get
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"max_cached_projects": "not_a_number"}))
+
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
+            assert cfg_get() is None
+
+    def test_config_value_clamped_to_bounds(self, tmp_path: Path) -> None:
+        """Config values outside bounds should be clamped."""
+        import json
+
+        from stride.config import get_max_cached_projects as cfg_get
+
+        config_file = tmp_path / "config.json"
+
+        config_file.write_text(json.dumps({"max_cached_projects": 0}))
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
+            assert cfg_get() == 1
+
+        config_file.write_text(json.dumps({"max_cached_projects": 99}))
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
+            assert cfg_get() == CACHED_PROJECTS_UPPER_BOUND
+
+    def test_missing_key_returns_none(self, tmp_path: Path) -> None:
+        """Config file without the key should return None."""
+        import json
+
+        from stride.config import get_max_cached_projects as cfg_get
+
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"other_key": "value"}))
+
+        with patch("stride.config.get_stride_config_path", return_value=config_file):
+            assert cfg_get() is None

@@ -54,8 +54,8 @@ _loaded_projects: dict[str, tuple[Project, ColorManager, StridePlots, str]] = {}
 _current_project_path: str | None = None
 
 # Maximum number of projects to keep open simultaneously.
-# Each open project holds a DuckDB connection with file descriptors;
-# on BlobFuse2 FUSE mounts too many concurrent connections cause [Errno 5].
+# Each open project holds a database connection with file descriptors;
+# on network-mounted filesystems too many concurrent connections cause errors.
 _max_cached_projects_override: int | None = None
 
 
