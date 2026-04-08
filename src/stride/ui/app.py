@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -30,6 +31,7 @@ from stride.ui.settings.layout import (
     get_temp_edits_for_category,
     parse_temp_edit_key,
 )
+from stride.config import CACHED_PROJECTS_UPPER_BOUND, DEFAULT_MAX_CACHED_PROJECTS, get_max_cached_projects as _get_config_max_cached
 from stride.ui.palette_utils import get_default_user_palette, list_user_palettes
 
 assets_path = Path(__file__).parent.absolute() / "assets"
@@ -50,6 +52,63 @@ app = Dash(
 # Note: We store Project instead of APIClient because APIClient is a singleton
 _loaded_projects: dict[str, tuple[Project, ColorManager, StridePlots, str]] = {}
 _current_project_path: str | None = None
+
+# Maximum number of projects to keep open simultaneously.
+# Each open project holds a database connection with file descriptors;
+# on network-mounted filesystems too many concurrent connections cause errors.
+_max_cached_projects_override: int | None = None
+
+
+def get_max_cached_projects() -> int:
+    """Resolve the effective max cached projects value.
+
+    Priority: CLI override > STRIDE_MAX_CACHED_PROJECTS env var > config file > default (3).
+    Result is clamped to [1, CACHED_PROJECTS_UPPER_BOUND].
+    """
+    if _max_cached_projects_override is not None:
+        return max(1, min(CACHED_PROJECTS_UPPER_BOUND, _max_cached_projects_override))
+
+    env_val = os.environ.get("STRIDE_MAX_CACHED_PROJECTS")
+    if env_val is not None:
+        try:
+            return max(1, min(CACHED_PROJECTS_UPPER_BOUND, int(env_val)))
+        except ValueError:
+            logger.warning(
+                f"Ignoring non-numeric STRIDE_MAX_CACHED_PROJECTS={env_val!r}, "
+                "falling back to config/default"
+            )
+
+    config_val = _get_config_max_cached()
+    if config_val is not None:
+        return config_val
+
+    return DEFAULT_MAX_CACHED_PROJECTS
+
+
+def set_max_cached_projects_override(n: int | None) -> None:
+    """Set the CLI override for max cached projects.
+
+    Parameters
+    ----------
+    n : int | None
+        Override value, or None to clear
+    """
+    global _max_cached_projects_override
+    _max_cached_projects_override = n
+
+
+def _evict_oldest_project() -> None:
+    """Evict the least-recently-used project from the cache if at capacity."""
+    limit = get_max_cached_projects()
+    while len(_loaded_projects) >= limit:
+        # Dict is insertion-ordered; first key is the oldest (LRU)
+        oldest_path = next(iter(_loaded_projects))
+        old_project, _, _, old_name = _loaded_projects.pop(oldest_path)
+        try:
+            old_project.close()
+            logger.info(f"Evicted and closed project '{old_name}' at {oldest_path}")
+        except Exception as e:
+            logger.warning(f"Error closing evicted project at {oldest_path}: {e}")
 
 
 def create_fresh_color_manager(
@@ -112,10 +171,16 @@ def load_project(project_path: str) -> tuple[bool, str]:
         # Check if already loaded - just switch to it
         if path_str in _loaded_projects:
             _current_project_path = path_str
+            # Move to end of dict for LRU ordering (most recently used = last)
+            entry = _loaded_projects.pop(path_str)
+            _loaded_projects[path_str] = entry
+            cached_project, _, _, project_name = entry
             # Update the APIClient singleton to point to this project
-            cached_project, _, _, project_name = _loaded_projects[path_str]
             APIClient(cached_project)  # Updates singleton
             return True, f"Switched to cached project: {project_name}"
+
+        # Evict oldest project(s) if at capacity
+        _evict_oldest_project()
 
         # Load new project
         project = Project.load(path, read_only=True)
@@ -361,15 +426,33 @@ def create_app(  # noqa: C901
                                 className="small mb-2",
                                 style={"fontSize": "0.8rem"},
                             ),
-                            # Dropdown for available projects (recent + discovered)
-                            dcc.Dropdown(
-                                id="project-switcher-dropdown",
-                                options=dropdown_options,  # type: ignore[arg-type]
-                                value=current_project_path,
-                                placeholder="Switch project...",
+                            html.Div(
+                                [
+                                    dcc.Dropdown(
+                                        id="project-switcher-dropdown",
+                                        options=dropdown_options,  # type: ignore[arg-type]
+                                        value=current_project_path,
+                                        placeholder="Switch project...",
+                                        className="mb-2",
+                                        style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                        clearable=False,
+                                    ),
+                                    html.Button(
+                                        html.I(className="bi bi-arrow-clockwise"),
+                                        id="refresh-projects-btn",
+                                        className="btn btn-sm btn-outline-secondary",
+                                        style={
+                                            "width": "30px",
+                                            "height": "38px",
+                                            "marginLeft": "5px",
+                                            "verticalAlign": "top",
+                                            "padding": "0",
+                                        },
+                                        title="Refresh project list",
+                                    ),
+                                ],
                                 className="mb-2",
-                                style={"fontSize": "0.85rem"},
-                                clearable=False,
+                                style={"display": "flex", "alignItems": "flex-start"},
                             ),
                         ]
                     ),
@@ -391,7 +474,7 @@ def create_app(  # noqa: C901
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
@@ -949,7 +1032,10 @@ def create_app(  # noqa: C901
                 if dropdown_value in _loaded_projects:
                     # Project already loaded - just switch to it
                     _current_project_path = dropdown_value
-                    cached_project, _, _, project_name = _loaded_projects[dropdown_value]
+                    # Move to end of dict for LRU ordering
+                    entry = _loaded_projects.pop(dropdown_value)
+                    _loaded_projects[dropdown_value] = entry
+                    cached_project, _, _, project_name = entry
                     # Update the APIClient singleton to point to this project
                     APIClient(cached_project)
                     return (
@@ -1007,6 +1093,42 @@ def create_app(  # noqa: C901
             *[{"label": s, "value": s} for s in new_scenarios],
         ]
         return options, "compare"  # Reset to home view
+
+  # Refresh dropdown options when refresh button is clicked
+    @callback(
+        Output("project-switcher-dropdown", "options", allow_duplicate=True),
+        Input("refresh-projects-btn", "n_clicks"),
+        State("current-project-path", "data"),
+        prevent_initial_call=True,
+    )
+    def refresh_dropdown_options(n_clicks: int | None, current_path: str) -> list[dict[str, str]]:
+        """Refresh the project switcher dropdown options with latest recent projects."""
+        if not n_clicks:
+            raise PreventUpdate
+
+        # Get current project info
+        data_handler = get_current_data_handler()
+        if not data_handler:
+            raise PreventUpdate
+
+        current_project_name = data_handler.project.config.project_id
+
+        # Build fresh dropdown options with deduplication by project_id
+        dropdown_options = [{"label": current_project_name, "value": current_path}]
+        seen_project_ids = {current_project_name}
+
+        # Get recent projects
+        recent = get_recent_projects()
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+
+        return dropdown_options
 
     # Regenerate home layout when project changes
     @callback(
@@ -1254,8 +1376,21 @@ def create_app_no_project(
                                 value=None,
                                 placeholder="Select a recent project...",
                                 className="mb-2",
-                                style={"fontSize": "0.85rem"},
-                                clearable=True,
+                                style={"fontSize": "0.85rem", "width": "calc(100% - 35px)", "display": "inline-block"},
+                                clearable=False,
+                            ),
+                            html.Button(
+                                html.I(className="bi bi-arrow-clockwise"),
+                                id="refresh-projects-btn",
+                                className="btn btn-sm btn-outline-secondary",
+                                style={
+                                    "width": "30px",
+                                    "height": "38px",
+                                    "marginLeft": "5px",
+                                    "verticalAlign": "top",
+                                    "padding": "0",
+                                },
+                                title="Refresh project list",
                             ),
                         ]
                     ),
@@ -1278,7 +1413,7 @@ def create_app_no_project(
             ),
         ],
         id="sidebar",
-        className="sidebar-nav dark-theme",
+        className=f"sidebar-nav {DEFAULT_CSS_THEME}",
         style={
             "position": "fixed",
             "top": 0,
@@ -1551,6 +1686,9 @@ def _register_no_project_callbacks(
     # Register the scenario CSS update callback
     _register_scenario_css_callback(get_current_color_manager)
 
+    # Register the refresh projects callback
+    _register_refresh_projects_callback()
+
     # Register home and scenario callbacks with dynamic data fetching
     register_home_callbacks(
         _get_current_data_handler_no_project,
@@ -1572,6 +1710,40 @@ def _register_no_project_callbacks(
         get_current_color_manager,
         _on_palette_change_no_project,
     )
+
+
+def _register_refresh_projects_callback() -> None:
+    """Register the refresh projects button callback."""
+
+    @callback(
+        Output("project-switcher-dropdown", "options", allow_duplicate=True),
+        Input("refresh-projects-btn", "n_clicks"),
+        State("current-project-path", "data"),
+        prevent_initial_call=True,
+    )
+    def refresh_dropdown_options(
+        n_clicks: int | None, current_path: str
+    ) -> list[dict[str, str]]:
+        """Refresh the project switcher dropdown options with latest recent projects."""
+        if not n_clicks:
+            raise PreventUpdate
+
+        # Build fresh dropdown options with deduplication by project_id
+        dropdown_options: list[dict[str, str]] = []
+        seen_project_ids: set[str] = set()
+
+        # Get recent projects
+        recent = get_recent_projects()
+        for proj in recent:
+            project_id = proj.get("project_id", "")
+            proj_path = proj.get("path", "")
+            if project_id and project_id not in seen_project_ids and Path(proj_path).exists():
+                dropdown_options.append(
+                    {"label": proj.get("name", project_id), "value": proj_path}
+                )
+                seen_project_ids.add(project_id)
+
+        return dropdown_options
 
 
 def _register_sidebar_toggle_callback() -> None:

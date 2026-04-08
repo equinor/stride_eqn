@@ -177,7 +177,7 @@ def load_project_by_path(project_path: str | Path, **kwargs: Any) -> Project:
     return Project.load(project_path, **kwargs)
 
 
-def get_recent_projects(max_count: int = 5) -> list[dict[str, Any]]:
+def get_recent_projects(max_count: int = 10) -> list[dict[str, Any]]:
     """
     Get recently accessed projects from config.
 

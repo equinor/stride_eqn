@@ -10,6 +10,7 @@ from dsgrid.exceptions import DSGBaseException
 from loguru import logger
 
 from stride import Project
+from stride.config import CACHED_PROJECTS_UPPER_BOUND
 from stride.models import CalculatedTableOverride
 from stride.project import list_valid_countries, list_valid_model_years, list_valid_weather_years
 from stride.ui.palette_utils import list_user_palettes, set_palette_priority
@@ -637,6 +638,12 @@ def calculated_tables() -> None:
     default=False,
     help="Disable automatic loading of default user palette",
 )
+@click.option(
+    "--max-cached-projects",
+    type=click.IntRange(1, CACHED_PROJECTS_UPPER_BOUND),
+    default=None,
+    help=f"Maximum number of projects to keep open simultaneously (1-{CACHED_PROJECTS_UPPER_BOUND}, default: 3)",
+)
 @click.pass_context
 def view(
     ctx: click.Context,
@@ -646,6 +653,7 @@ def view(
     debug: bool,
     user_palette: str | None,
     no_default_palette: bool,
+    max_cached_projects: int | None,
 ) -> None:
     """Start the STRIDE dashboard UI.
 
@@ -658,12 +666,17 @@ def view(
     a different user palette to use.
     """
     from stride.api import APIClient
-    from stride.ui.app import create_app, create_app_no_project
+    from stride.ui.app import create_app, create_app_no_project, set_max_cached_projects_override
     from stride.ui.palette_utils import (
         get_default_user_palette,
         get_palette_priority,
         load_user_palette,
     )
+
+    # Apply max cached projects override if provided via CLI
+    if max_cached_projects is not None:
+        set_max_cached_projects_override(max_cached_projects)
+        logger.info(f"Max cached projects set to {max_cached_projects} via CLI")
 
     # Determine which palette to use
     palette_override = None

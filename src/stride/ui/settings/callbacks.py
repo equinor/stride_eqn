@@ -8,6 +8,7 @@ from dash import ALL, Input, Output, State, callback, ctx, html, no_update
 from dash.exceptions import PreventUpdate
 from loguru import logger
 
+from stride.config import CACHED_PROJECTS_UPPER_BOUND, set_max_cached_projects
 from stride.ui.palette import ColorPalette
 from stride.ui.settings.layout import (
     clear_temp_color_edits,
@@ -925,6 +926,56 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 no_update,  # type: ignore[return-value]
                 no_update,  # type: ignore[return-value]
             )
+
+    # Max Cached Projects callback
+    @callback(
+        Output("max-cached-projects-status", "children"),
+        Input("save-max-cached-btn", "n_clicks"),
+        State("max-cached-projects-input", "value"),
+        prevent_initial_call=True,
+    )
+    def save_max_cached_projects(
+        n_clicks: int | None,
+        value: int | None,
+    ) -> html.Div:
+        """Save the max cached projects setting."""
+        if not n_clicks:
+            raise PreventUpdate
+        print(value)
+        if value is None:
+            return html.Div(
+                "✗ Please enter a value",
+                className="text-danger",
+            )
+
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            return html.Div(
+                "✗ Invalid number",
+                className="text-danger",
+            )
+
+        if n < 1 or n > CACHED_PROJECTS_UPPER_BOUND:
+            return html.Div(
+                f"✗ Value must be between 1 and {CACHED_PROJECTS_UPPER_BOUND}",
+                className="text-danger",
+            )
+
+        from stride.ui.app import _evict_oldest_project, set_max_cached_projects_override
+
+        # Persist to config file
+        set_max_cached_projects(n)
+        # Also update the runtime override so it takes effect immediately
+        set_max_cached_projects_override(n)
+        # Trigger eviction if current cache exceeds new limit
+        _evict_oldest_project()
+
+        logger.info(f"Max cached projects set to {n}")
+        return html.Div(
+            f"✓ Max cached projects set to {n}",
+            className="text-success",
+        )
 
 
 def _convert_to_hex(color: str) -> str:
