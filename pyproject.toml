@@ -11,9 +11,9 @@ requires-python = ">=3.11, <3.14"
 license = { file = "LICENSE" }
 keywords = []
 authors = [
-    { name = "Daniel Thom", email = "daniel.thom@nrel.gov" },
-    { name = "Elaine Hale", email = "elaine.hale@nrel.gov" },
-    { name = "Micah Webb", email = "micah.webb@nrel.gov" },
+    { name = "Daniel Thom", email = "daniel.thom@nlr.gov" },
+    { name = "Elaine Hale", email = "elaine.hale@nlr.gov" },
+    { name = "Micah Webb", email = "micah.webb@nlr.gov" },
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
