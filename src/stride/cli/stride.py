@@ -197,8 +197,8 @@ def create_project(
             from stride.ui.project_manager import add_recent_project
 
             add_recent_project(project.path, project.config.project_id)
-        except Exception as e:
-            logger.warning(f"Could not add to recent projects: {e}")
+        except Exception:
+            logger.exception("Could not add to recent projects")
 
 
 _export_ep_epilog = """
