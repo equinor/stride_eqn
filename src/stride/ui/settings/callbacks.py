@@ -962,10 +962,12 @@ def register_settings_callbacks(  # type: ignore[no-untyped-def]  # noqa: C901
                 className="text-danger",
             )
 
-        from stride.ui.app import _evict_oldest_project
+        from stride.ui.app import _evict_oldest_project, set_max_cached_projects_override
 
         # Persist to config file
         set_max_cached_projects(n)
+        # Also update the runtime override so it takes effect immediately
+        set_max_cached_projects_override(n)
         # Trigger eviction if current cache exceeds new limit
         _evict_oldest_project()
 
