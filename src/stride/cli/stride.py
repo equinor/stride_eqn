@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import rich_click as click
-from chronify.exceptions import ChronifyExceptionBase
+from chronify.exceptions import ChronifyExceptionBase, InvalidParameter
 from chronify.loggers import setup_logging
 from dsgrid.cli.common import path_callback
 from dsgrid.exceptions import DSGBaseException
@@ -11,7 +11,7 @@ from loguru import logger
 
 from stride import Project
 from stride.config import CACHED_PROJECTS_UPPER_BOUND
-from stride.models import CalculatedTableOverride
+from stride.models import CalculatedTableOverride, CustomDemandComponent
 from stride.project import list_valid_countries, list_valid_model_years, list_valid_weather_years
 from stride.ui.palette_utils import list_user_palettes, set_palette_priority
 from stride.dataset_download import (
@@ -193,12 +193,9 @@ def create_project(
         ctx.exit(res[1])
     project = res[0]
     if project is not None:
-        try:
-            from stride.ui.project_manager import add_recent_project
+        from stride.ui.project_manager import add_recent_project
 
-            add_recent_project(project.path, project.config.project_id)
-        except Exception:
-            logger.exception("Could not add to recent projects")
+        add_recent_project(project.path, project.config.project_id)
 
 
 _export_ep_epilog = """
@@ -1248,6 +1245,139 @@ def refresh_palette(ctx: click.Context, project_path: Path) -> None:
     print("\nPalette colors refreshed and saved!")
 
 
+@click.group(name="custom-demand")
+def custom_demand() -> None:
+    """Custom demand component commands"""
+
+
+_custom_demand_add_epilog = """
+Examples:\n
+Add a flat-profile data center component:\n
+$ stride custom-demand add my_project --name data_centers --sector "Data Centers" --data-file data/dc_annual.csv\n
+\n
+Add a heat pump component using the residential load shape:\n
+$ stride custom-demand add my_project --name heat_pumps --sector "Heat Pumps" --data-file hp.csv --load-profile "sector:Residential" --metric heating\n
+"""
+
+
+@click.command(name="add", epilog=_custom_demand_add_epilog)
+@click.argument("project-path", type=click.Path(exists=True), callback=path_callback)
+@click.option("--name", type=str, required=True, help="Unique identifier (e.g., 'heat_pumps')")
+@click.option("--sector", type=str, required=True, help="Sector label for UI (e.g., 'Heat Pumps')")
+@click.option(
+    "--data-file",
+    type=click.Path(exists=True),
+    required=True,
+    help="CSV/Parquet with model_year and value columns",
+    callback=path_callback,
+)
+@click.option(
+    "--load-profile",
+    type=str,
+    default="flat",
+    show_default=True,
+    help="Profile: 'flat', 'sector:<name>', 'enduse:<name>', or path to 8760 CSV",
+)
+@click.option(
+    "--metric",
+    type=str,
+    default="other",
+    show_default=True,
+    help="End-use/metric label (e.g., 'heating', 'cooling', 'other')",
+)
+@click.pass_context
+def add_custom_demand(
+    ctx: click.Context,
+    project_path: Path,
+    name: str,
+    sector: str,
+    data_file: Path,
+    load_profile: str,
+    metric: str,
+) -> None:
+    """Add a custom demand component and recompute the energy projection."""
+    res = handle_stride_exception(
+        ctx,
+        _add_custom_demand,
+        project_path,
+        name,
+        sector,
+        data_file,
+        load_profile,
+        metric,
+    )
+    if res[1] != 0:
+        ctx.exit(res[1])
+
+
+def _add_custom_demand(
+    project_path: Path,
+    name: str,
+    sector: str,
+    data_file: Path,
+    load_profile: str,
+    metric: str,
+) -> None:
+    project = Project.load(project_path)
+    # Check for duplicate name
+    existing = {c.name for c in project.config.custom_demand_components}
+    if name in existing:
+        msg = f"Custom demand component '{name}' already exists. Remove it first."
+        raise InvalidParameter(msg)
+
+    component = CustomDemandComponent(
+        name=name,
+        sector=sector,
+        data_file=data_file.resolve(),
+        load_profile=load_profile,
+        metric=metric,
+    )
+    project.config.custom_demand_components.append(component)
+    project.persist()
+    project.compute_energy_projection()
+    print(f"Added custom demand component '{name}' and recomputed energy projection.")
+
+
+@click.command(name="list")
+@click.argument("project-path", type=click.Path(exists=True), callback=path_callback)
+@click.pass_context
+def list_custom_demand(ctx: click.Context, project_path: Path) -> None:
+    """List custom demand components in the project."""
+    project = safe_get_project_from_context(ctx, project_path, read_only=True)
+    components = project.config.custom_demand_components
+    if not components:
+        print("No custom demand components configured.")
+        return
+    print(f"Custom demand components ({len(components)}):")
+    for c in components:
+        print(f"  {c.name}: sector={c.sector!r}, profile={c.load_profile!r}, "
+              f"metric={c.metric!r}, data_file={c.data_file}")
+
+
+@click.command(name="remove")
+@click.argument("project-path", type=click.Path(exists=True), callback=path_callback)
+@click.option("--name", type=str, required=True, help="Name of the component to remove")
+@click.pass_context
+def remove_custom_demand(ctx: click.Context, project_path: Path, name: str) -> None:
+    """Remove a custom demand component and recompute the energy projection."""
+    res = handle_stride_exception(ctx, _remove_custom_demand, project_path, name)
+    if res[1] != 0:
+        ctx.exit(res[1])
+
+
+def _remove_custom_demand(project_path: Path, name: str) -> None:
+    project = Project.load(project_path)
+    components = project.config.custom_demand_components
+    original_len = len(components)
+    project.config.custom_demand_components = [c for c in components if c.name != name]
+    if len(project.config.custom_demand_components) == original_len:
+        msg = f"Custom demand component '{name}' not found."
+        raise InvalidParameter(msg)
+    project.persist()
+    project.compute_energy_projection()
+    print(f"Removed custom demand component '{name}' and recomputed energy projection.")
+
+
 def handle_stride_exception(
     ctx: click.Context, func: Callable[..., Any], *args: Any, **kwargs: Any
 ) -> Any:
@@ -1285,6 +1415,7 @@ cli.add_command(scenarios)
 cli.add_command(calculated_tables)
 cli.add_command(palette)
 cli.add_command(view)
+cli.add_command(custom_demand)
 projects.add_command(init_project)
 projects.add_command(create_project)
 projects.add_command(export_energy_projection)
@@ -1308,3 +1439,6 @@ palette.add_command(get_default_palette)
 palette.add_command(set_priority)
 palette.add_command(get_priority)
 palette.add_command(refresh_palette)
+custom_demand.add_command(add_custom_demand)
+custom_demand.add_command(list_custom_demand)
+custom_demand.add_command(remove_custom_demand)

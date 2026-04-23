@@ -176,3 +176,5 @@ __dsgrid_scratch__
 journal*.json5
 dev_project
 dev_project.json5
+*DS_Store*
+equinor*

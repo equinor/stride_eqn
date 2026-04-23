@@ -120,6 +120,7 @@ def create_fresh_color_manager(
     scenarios: list[str],
     *,
     ui_theme: str = "light",
+    sectors: list[str] | None = None,
 ) -> ColorManager:
     """Create a fresh ColorManager instance, bypassing the singleton.
 
@@ -145,7 +146,7 @@ def create_fresh_color_manager(
     ColorManager.__init__(color_manager, palette)
     color_manager.initialize_colors(
         scenarios=scenarios,
-        sectors=literal_to_list(Sectors),
+        sectors=sectors if sectors is not None else literal_to_list(Sectors),
         end_uses=list(palette.end_uses.keys()),
     )
 
@@ -200,15 +201,18 @@ def load_project(project_path: str) -> tuple[bool, str]:
 
         # Create a fresh color manager for this project
         palette = project.palette.copy()
+        dynamic_sectors = None
         try:
+            dynamic_sectors = data_handler.get_unique_sectors()
             palette.merge_with_project_dimensions(
-                sectors=data_handler.get_unique_sectors(),
+                sectors=dynamic_sectors,
                 end_uses=data_handler.get_unique_end_uses(),
             )
         except Exception as e:
             logger.warning(f"Could not populate sectors/end_uses: {e}")
         color_manager = create_fresh_color_manager(
-            palette, data_handler.scenarios, ui_theme=ui_theme
+            palette, data_handler.scenarios, ui_theme=ui_theme,
+            sectors=dynamic_sectors,
         )
 
         plotter = StridePlots(color_manager, template=current_template)
@@ -865,9 +869,11 @@ def create_app(  # noqa: C901
             data_handler = APIClient(cached_project)
 
             # Ensure sectors/end_uses are current
+            dynamic_sectors = None
             try:
+                dynamic_sectors = data_handler.get_unique_sectors()
                 palette_copy.merge_with_project_dimensions(
-                    sectors=data_handler.get_unique_sectors(),
+                    sectors=dynamic_sectors,
                     end_uses=data_handler.get_unique_end_uses(),
                 )
             except Exception as e:
@@ -878,6 +884,7 @@ def create_app(  # noqa: C901
                 palette_copy,
                 data_handler.scenarios,
                 ui_theme=ui_mode,
+                sectors=dynamic_sectors,
             )
 
             plotter = StridePlots(color_manager, template=current_template)
@@ -1649,9 +1656,11 @@ def _on_palette_change_no_project(
         data_handler = APIClient(cached_project)
 
         # Ensure sectors/end_uses are current
+        dynamic_sectors = None
         try:
+            dynamic_sectors = data_handler.get_unique_sectors()
             palette_copy.merge_with_project_dimensions(
-                sectors=data_handler.get_unique_sectors(),
+                sectors=dynamic_sectors,
                 end_uses=data_handler.get_unique_end_uses(),
             )
         except Exception as e:
@@ -1661,6 +1670,7 @@ def _on_palette_change_no_project(
             palette_copy,
             data_handler.scenarios,
             ui_theme=ui_mode,
+            sectors=dynamic_sectors,
         )
         new_plotter = StridePlots(new_color_manager, template=current_template)
 

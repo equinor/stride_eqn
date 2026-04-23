@@ -22,6 +22,45 @@ class ProjectionSliceType(StrEnum):
     HEAT_PUMPS = "heat_pumps"
 
 
+class CustomDemandComponent(DSGBaseModel):  # type: ignore
+    """Defines an additive custom demand component.
+
+    A custom demand component is a user-defined electricity load (e.g., heat pumps,
+    data centers) that is injected into the energy projection after dbt computation.
+    Annual MWh values are distributed into 8760 hourly rows using the specified
+    load profile.
+    """
+
+    name: str = Field(
+        description="Unique identifier for this component (e.g., 'heat_pumps')"
+    )
+    sector: str = Field(
+        description="Sector label for UI grouping (e.g., 'Heat Pumps')"
+    )
+    data_file: Path = Field(
+        description="Path to CSV/Parquet with model_year and value (annual MWh) columns"
+    )
+    load_profile: str = Field(
+        default="flat",
+        description=(
+            "How to distribute annual energy into hours. Options: "
+            "'flat', 'sector:<name>', 'enduse:<name>', or a file path to an 8760 CSV"
+        ),
+    )
+    metric: str = Field(
+        default="other",
+        description="End-use/metric label (e.g., 'heating', 'cooling', 'other')",
+    )
+
+    @field_validator("name")
+    @classmethod
+    def check_name(cls, name: str) -> str:
+        if not name.isidentifier():
+            msg = f"Component name must be a valid Python identifier: {name!r}"
+            raise ValueError(msg)
+        return name
+
+
 class Scenario(DSGBaseModel):  # type: ignore
     """Allows the user to add custom tables to compare against the defaults."""
 
@@ -73,6 +112,13 @@ class Scenario(DSGBaseModel):  # type: ignore
     vehicle_per_capita_regressions: Path | None = Field(
         default=None,
         description="Optional path to a user-provided vehicle_per_capita_regressions table",
+    )
+    custom_demand_overrides: dict[str, Path] = Field(
+        default={},
+        description=(
+            "Per-scenario overrides for custom demand components. "
+            "Keys are component names, values are paths to alternative data files."
+        ),
     )
 
     @field_validator("name")
@@ -164,6 +210,10 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
         default=[],
         description="Calculated tables to override",
     )
+    custom_demand_components: list[CustomDemandComponent] = Field(
+        default=[],
+        description="Additive custom demand components (e.g., heat pumps, data centers)",
+    )
     color_palette: dict[str, dict[str, str]] = Field(
         default={"scenarios": {}, "model_years": {}, "sectors": {}, "end_uses": {}},
         description="Color palette organized into scenarios, model_years, sectors, and end_uses categories. Each category maps labels to hex/rgb color strings for the UI.",
@@ -175,7 +225,7 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
         config = super().from_file(path)
         for scenario in config.scenarios:
             for field in Scenario.model_fields:
-                if field in ("name", "use_ev_projection"):
+                if field in ("name", "use_ev_projection", "custom_demand_overrides"):
                     continue
                 val = getattr(scenario, field)
                 if val is not None and not val.is_absolute():
@@ -187,6 +237,16 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
                         f"does not exist"
                     )
                     raise InvalidParameter(msg)
+            for key, val in scenario.custom_demand_overrides.items():
+                if not val.is_absolute():
+                    val = (path.parent / val).resolve()
+                    scenario.custom_demand_overrides[key] = val
+                if not val.exists():
+                    msg = (
+                        f"Scenario={scenario.name} custom_demand_override={key} "
+                        f"filename={val} does not exist"
+                    )
+                    raise InvalidParameter(msg)
             for table in config.calculated_table_overrides:
                 if table.filename is not None and not table.filename.is_absolute():
                     table.filename = path.parent / table.filename
@@ -196,6 +256,15 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
                         f"filename={table.filename} does not exist"
                     )
                     raise InvalidParameter(msg)
+        for component in config.custom_demand_components:
+            if not component.data_file.is_absolute():
+                component.data_file = (path.parent / component.data_file).resolve()
+            if not component.data_file.exists():
+                msg = (
+                    f"Custom demand component={component.name} "
+                    f"data_file={component.data_file} does not exist"
+                )
+                raise InvalidParameter(msg)
         return config  # type: ignore
 
     def list_model_years(self) -> list[int]:

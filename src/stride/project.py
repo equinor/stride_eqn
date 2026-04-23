@@ -27,6 +27,7 @@ from stride.dsgrid_integration import (
 from stride.io import create_table_from_file, export_table
 from stride.models import (
     CalculatedTableOverride,
+    CustomDemandComponent,
     ProjectConfig,
     Scenario,
 )
@@ -514,7 +515,11 @@ class Project:
     @staticmethod
     def list_data_tables() -> list[str]:
         """List the data tables available in any project."""
-        return [x for x in Scenario.model_fields if x not in ("name", "use_ev_projection")]
+        return [
+            x
+            for x in Scenario.model_fields
+            if x not in ("name", "use_ev_projection", "custom_demand_overrides")
+        ]
 
     def persist(self) -> None:
         """Persist the project config to the project directory."""
@@ -631,6 +636,29 @@ class Project:
                     multiplier_stats[5],
                 )
 
+            # Inject custom demand components (after dbt, before copying to main)
+            # dbt outputs energy_projection as a view; materialize it as a table
+            # so we can INSERT custom demand rows into it.
+            if self._config.custom_demand_components:
+                self._con.sql(
+                    f"CREATE TABLE {scenario.name}.__ep_tmp AS "
+                    f"SELECT * FROM {scenario.name}.energy_projection"
+                )
+                self._con.sql(
+                    f"DROP VIEW {scenario.name}.energy_projection"
+                )
+                self._con.sql(
+                    f"ALTER TABLE {scenario.name}.__ep_tmp "
+                    f"RENAME TO energy_projection"
+                )
+                injected = self.inject_custom_demand_components(scenario)
+                if injected > 0:
+                    logger.info(
+                        "Injected {} custom demand component rows for scenario '{}'",
+                        injected,
+                        scenario.name,
+                    )
+
             columns = "timestamp, model_year, scenario, sector, geography, metric, value"
             if i == 0:
                 query = f"""
@@ -652,6 +680,414 @@ class Project:
                 scenario.name,
             )
         self._con.commit()
+
+    def inject_custom_demand_components(self, scenario: Scenario) -> int:
+        """Inject custom demand component rows into {scenario}.energy_projection.
+
+        For each custom demand component:
+        1. Load annual MWh data from CSV/Parquet
+        2. Resolve the load profile (flat only for now; sector/enduse reference in CP3)
+        3. Distribute annual energy into 8760 hours using the profile
+        4. INSERT rows into {scenario}.energy_projection
+
+        Uses defensive DELETE before insert to ensure idempotency.
+
+        Returns the number of rows injected.
+        """
+        total_injected = 0
+        model_years = self._config.list_model_years()
+        model_years_str = ", ".join(str(y) for y in model_years)
+
+        for component in self._config.custom_demand_components:
+            # Resolve data file: use scenario override if available
+            data_file = scenario.custom_demand_overrides.get(
+                component.name, component.data_file
+            )
+
+            # Load annual data into a staging table
+            staging_table = f"stride.custom__{component.name}__{scenario.name}__annual"
+            create_table_from_file(
+                self._con, staging_table, data_file, replace=True
+            )
+
+            # Validate required columns
+            columns = [
+                col[0]
+                for col in self._con.sql(f"DESCRIBE {staging_table}").fetchall()
+            ]
+            if "model_year" not in columns or "value" not in columns:
+                msg = (
+                    f"Custom demand component '{component.name}' data file "
+                    f"must have 'model_year' and 'value' columns. "
+                    f"Found: {columns}"
+                )
+                raise InvalidParameter(msg)
+
+            # Check that data covers the required model years
+            available_years = {
+                row[0]
+                for row in self._con.sql(
+                    f"SELECT DISTINCT model_year FROM {staging_table}"
+                ).fetchall()
+            }
+            missing_years = set(model_years) - available_years
+            if missing_years:
+                msg = (
+                    f"Custom demand component '{component.name}' data file "
+                    f"is missing model years: {sorted(missing_years)}"
+                )
+                raise InvalidParameter(msg)
+
+            # Defensive DELETE: remove any existing rows for this custom sector
+            self._con.sql(
+                f"DELETE FROM {scenario.name}.energy_projection "
+                f"WHERE sector = '{component.sector}'"
+            )
+
+            # Generate and insert hourly rows using the appropriate profile
+            profile_sql = self._build_profile_sql(
+                component, scenario.name, model_years_str
+            )
+
+            insert_sql = f"""
+                INSERT INTO {scenario.name}.energy_projection
+                {profile_sql}
+            """
+            self._con.sql(insert_sql)
+
+            # Count injected rows
+            count = self._con.sql(
+                f"SELECT COUNT(*) FROM {scenario.name}.energy_projection "
+                f"WHERE sector = '{component.sector}'"
+            ).fetchone()[0]
+            total_injected += count
+
+            logger.info(
+                "Injected {} rows for custom component '{}' (sector='{}') in scenario '{}'",
+                count,
+                component.name,
+                component.sector,
+                scenario.name,
+            )
+
+            # Verify annual totals match input for years that were injected
+            for year in model_years:
+                expected = self._con.sql(
+                    f"SELECT value FROM {staging_table} WHERE model_year = {year}"
+                ).fetchone()[0]
+                actual = self._con.sql(
+                    f"SELECT SUM(value) FROM {scenario.name}.energy_projection "
+                    f"WHERE sector = '{component.sector}' AND model_year = {year}"
+                ).fetchone()[0]
+                if actual is None:
+                    logger.warning(
+                        "No hourly timestamps found for year {} — "
+                        "custom component '{}' was not injected for this year",
+                        year,
+                        component.name,
+                    )
+                elif abs(actual - expected) > 0.01:
+                    logger.warning(
+                        "Annual total mismatch for component '{}', year {}: "
+                        "expected={}, actual={}",
+                        component.name,
+                        year,
+                        expected,
+                        actual,
+                    )
+
+        return total_injected
+
+    def _build_profile_sql(
+        self,
+        component: CustomDemandComponent,
+        scenario_name: str,
+        model_years_str: str,
+    ) -> str:
+        """Build the SQL SELECT that produces hourly rows for a custom demand component.
+
+        Returns a SQL SELECT statement (without INSERT INTO) that produces rows matching
+        the {scenario}.energy_projection schema: timestamp, model_year, sector, geography,
+        metric, value.
+        """
+        staging_table = f"stride.custom__{component.name}__{scenario_name}__annual"
+        profile = component.load_profile
+
+        if profile == "flat":
+            return self._build_flat_profile_sql(
+                component, scenario_name, staging_table, model_years_str
+            )
+        elif profile.startswith("sector:"):
+            ref_sector = profile.split(":", 1)[1]
+            self._validate_load_shape_reference(
+                scenario_name, "sector", ref_sector, model_years_str
+            )
+            return self._build_sector_reference_profile_sql(
+                component, scenario_name, staging_table, model_years_str, ref_sector
+            )
+        elif profile.startswith("enduse:"):
+            ref_enduse = profile.split(":", 1)[1]
+            self._validate_load_shape_reference(
+                scenario_name, "enduse", ref_enduse, model_years_str
+            )
+            return self._build_enduse_reference_profile_sql(
+                component, scenario_name, staging_table, model_years_str, ref_enduse
+            )
+        else:
+            # Treat as a file path to an 8760 hourly profile CSV/Parquet
+            profile_path = Path(profile)
+            if not profile_path.is_absolute():
+                profile_path = self._path / profile_path
+            if not profile_path.exists():
+                msg = (
+                    f"Custom profile file '{profile}' not found "
+                    f"(resolved to {profile_path})"
+                )
+                raise InvalidParameter(msg)
+            return self._build_file_profile_sql(
+                component, scenario_name, staging_table, model_years_str, profile_path
+            )
+
+    def _build_flat_profile_sql(
+        self,
+        component: CustomDemandComponent,
+        scenario_name: str,
+        staging_table: str,
+        model_years_str: str,
+    ) -> str:
+        """Build SQL for flat (uniform) hourly distribution."""
+        return f"""
+            WITH annual_data AS (
+                SELECT model_year, value AS annual_mwh
+                FROM {staging_table}
+                WHERE model_year IN ({model_years_str})
+            ),
+            hourly_timestamps AS (
+                SELECT DISTINCT timestamp, model_year
+                FROM {scenario_name}.energy_projection
+            )
+            SELECT
+                ht.timestamp,
+                ht.model_year,
+                '{self._config.country}' AS geography,
+                '{component.sector}' AS sector,
+                '{component.metric}' AS metric,
+                ad.annual_mwh / 8760.0 AS value,
+                '{scenario_name}' AS scenario
+            FROM hourly_timestamps ht
+            JOIN annual_data ad ON ht.model_year = ad.model_year
+        """
+
+    def _validate_load_shape_reference(
+        self,
+        scenario_name: str,
+        dimension: str,
+        ref_value: str,
+        model_years_str: str,
+    ) -> None:
+        """Validate that a sector or enduse reference exists in load_shapes_expanded.
+
+        Raises InvalidParameter if the reference value is not found.
+        """
+        count = self._con.sql(
+            f"SELECT COUNT(*) FROM {scenario_name}.load_shapes_expanded "
+            f"WHERE {dimension} = '{ref_value}' "
+            f"AND model_year IN ({model_years_str})"
+        ).fetchone()[0]
+        if count == 0:
+            available = sorted(
+                row[0]
+                for row in self._con.sql(
+                    f"SELECT DISTINCT {dimension} FROM {scenario_name}.load_shapes_expanded "
+                    f"WHERE model_year IN ({model_years_str})"
+                ).fetchall()
+            )
+            msg = (
+                f"Reference profile '{dimension}:{ref_value}' not found in "
+                f"load_shapes_expanded. Available {dimension}s: {available}"
+            )
+            raise InvalidParameter(msg)
+
+    def _build_sector_reference_profile_sql(
+        self,
+        component: CustomDemandComponent,
+        scenario_name: str,
+        staging_table: str,
+        model_years_str: str,
+        ref_sector: str,
+    ) -> str:
+        """Build SQL using a sector's aggregate load shape as the hourly profile.
+
+        Aggregates all enduses for the given sector, normalizes to fraction per
+        model_year, then multiplies by annual MWh.
+        """
+        return f"""
+            WITH annual_data AS (
+                SELECT model_year, value AS annual_mwh
+                FROM {staging_table}
+                WHERE model_year IN ({model_years_str})
+            ),
+            aggregated_shape AS (
+                SELECT
+                    timestamp,
+                    model_year,
+                    SUM(adjusted_value) AS total_adjusted_value
+                FROM {scenario_name}.load_shapes_expanded
+                WHERE sector = '{ref_sector}'
+                    AND model_year IN ({model_years_str})
+                GROUP BY timestamp, model_year
+            ),
+            reference_shape AS (
+                SELECT
+                    timestamp,
+                    model_year,
+                    total_adjusted_value / SUM(total_adjusted_value) OVER (
+                        PARTITION BY model_year
+                    ) AS fraction
+                FROM aggregated_shape
+            )
+            SELECT
+                rs.timestamp,
+                rs.model_year,
+                '{self._config.country}' AS geography,
+                '{component.sector}' AS sector,
+                '{component.metric}' AS metric,
+                ad.annual_mwh * rs.fraction AS value,
+                '{scenario_name}' AS scenario
+            FROM reference_shape rs
+            JOIN annual_data ad ON rs.model_year = ad.model_year
+        """
+
+    def _build_enduse_reference_profile_sql(
+        self,
+        component: CustomDemandComponent,
+        scenario_name: str,
+        staging_table: str,
+        model_years_str: str,
+        ref_enduse: str,
+    ) -> str:
+        """Build SQL using an enduse's aggregate load shape as the hourly profile.
+
+        Aggregates all sectors for the given enduse, normalizes to fraction per
+        model_year, then multiplies by annual MWh.
+        """
+        return f"""
+            WITH annual_data AS (
+                SELECT model_year, value AS annual_mwh
+                FROM {staging_table}
+                WHERE model_year IN ({model_years_str})
+            ),
+            aggregated_shape AS (
+                SELECT
+                    timestamp,
+                    model_year,
+                    SUM(adjusted_value) AS total_adjusted_value
+                FROM {scenario_name}.load_shapes_expanded
+                WHERE enduse = '{ref_enduse}'
+                    AND model_year IN ({model_years_str})
+                GROUP BY timestamp, model_year
+            ),
+            reference_shape AS (
+                SELECT
+                    timestamp,
+                    model_year,
+                    total_adjusted_value / SUM(total_adjusted_value) OVER (
+                        PARTITION BY model_year
+                    ) AS fraction
+                FROM aggregated_shape
+            )
+            SELECT
+                rs.timestamp,
+                rs.model_year,
+                '{self._config.country}' AS geography,
+                '{component.sector}' AS sector,
+                '{component.metric}' AS metric,
+                ad.annual_mwh * rs.fraction AS value,
+                '{scenario_name}' AS scenario
+            FROM reference_shape rs
+            JOIN annual_data ad ON rs.model_year = ad.model_year
+        """
+
+    def _build_file_profile_sql(
+        self,
+        component: CustomDemandComponent,
+        scenario_name: str,
+        staging_table: str,
+        model_years_str: str,
+        profile_path: Path,
+    ) -> str:
+        """Build SQL using a user-provided hourly profile CSV.
+
+        The profile file must have a `value` column with 8760 rows (one per hour).
+        It is joined positionally with the hourly timestamps from energy_projection.
+        The profile is normalized so that annual totals match the input data.
+        """
+        profile_table = (
+            f"stride.custom__{component.name}__{scenario_name}__profile"
+        )
+        create_table_from_file(
+            self._con, profile_table, profile_path, replace=True
+        )
+
+        # Validate the profile has a value column
+        columns = [
+            col[0]
+            for col in self._con.sql(f"DESCRIBE {profile_table}").fetchall()
+        ]
+        if "value" not in columns:
+            msg = (
+                f"Custom profile file must have a 'value' column. "
+                f"Found: {columns}"
+            )
+            raise InvalidParameter(msg)
+
+        row_count = self._con.sql(
+            f"SELECT COUNT(*) FROM {profile_table}"
+        ).fetchone()[0]
+        if row_count != 8760:
+            msg = (
+                f"Custom profile file must have exactly 8760 rows "
+                f"(got {row_count})"
+            )
+            raise InvalidParameter(msg)
+
+        return f"""
+            WITH annual_data AS (
+                SELECT model_year, value AS annual_mwh
+                FROM {staging_table}
+                WHERE model_year IN ({model_years_str})
+            ),
+            hourly_timestamps AS (
+                SELECT DISTINCT timestamp, model_year,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY model_year ORDER BY timestamp
+                    ) AS hour_idx
+                FROM {scenario_name}.energy_projection
+            ),
+            profile_data AS (
+                SELECT
+                    ROW_NUMBER() OVER (ORDER BY rowid) AS hour_idx,
+                    value AS profile_value
+                FROM {profile_table}
+            ),
+            profile_normalized AS (
+                SELECT
+                    hour_idx,
+                    profile_value / SUM(profile_value) OVER () AS fraction
+                FROM profile_data
+            )
+            SELECT
+                ht.timestamp,
+                ht.model_year,
+                '{self._config.country}' AS geography,
+                '{component.sector}' AS sector,
+                '{component.metric}' AS metric,
+                ad.annual_mwh * pn.fraction AS value,
+                '{scenario_name}' AS scenario
+            FROM hourly_timestamps ht
+            JOIN annual_data ad ON ht.model_year = ad.model_year
+            JOIN profile_normalized pn ON ht.hour_idx = pn.hour_idx
+        """
 
     def export_energy_projection(
         self, filename: Path = Path("energy_projection.csv"), overwrite: bool = False
