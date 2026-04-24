@@ -760,6 +760,7 @@ class Project:
             count = self._con.sql(
                 f"SELECT COUNT(*) FROM {scenario.name}.energy_projection "
                 f"WHERE sector = '{component.sector}'"
+                f" AND metric = '{component.metric}'"
             ).fetchone()[0]
             total_injected += count
 
@@ -778,7 +779,9 @@ class Project:
                 ).fetchone()[0]
                 actual = self._con.sql(
                     f"SELECT SUM(value) FROM {scenario.name}.energy_projection "
-                    f"WHERE sector = '{component.sector}' AND model_year = {year}"
+                    f"WHERE sector = '{component.sector}'"
+                    f" AND metric = '{component.metric}'"
+                    f" AND model_year = {year}"
                 ).fetchone()[0]
                 if actual is None:
                     logger.warning(
