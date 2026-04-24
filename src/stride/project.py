@@ -738,10 +738,11 @@ class Project:
                 )
                 raise InvalidParameter(msg)
 
-            # Defensive DELETE: remove any existing rows for this custom sector
+            # Defensive DELETE: remove any existing rows for this custom component
             self._con.sql(
                 f"DELETE FROM {scenario.name}.energy_projection "
                 f"WHERE sector = '{component.sector}'"
+                f" AND metric = '{component.metric}'"
             )
 
             # Generate and insert hourly rows using the appropriate profile
