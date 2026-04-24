@@ -193,9 +193,12 @@ def create_project(
         ctx.exit(res[1])
     project = res[0]
     if project is not None:
-        from stride.ui.project_manager import add_recent_project
+        try:
+            from stride.ui.project_manager import add_recent_project
 
-        add_recent_project(project.path, project.config.project_id)
+            add_recent_project(project.path, project.config.project_id)
+        except Exception:
+            logger.exception("Could not add to recent projects")
 
 
 _export_ep_epilog = """
