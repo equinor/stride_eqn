@@ -17,6 +17,7 @@ from dsgrid.query.query_submitter import (
 )
 from dsgrid.registry.bulk_register import bulk_register
 from dsgrid.registry.common import DataStoreType, DatabaseConnection
+from dsgrid.exceptions import DSGValueNotRegistered
 from dsgrid.registry.registry_manager import RegistryManager
 from loguru import logger
 
@@ -108,9 +109,25 @@ def make_mapped_datasets(
             )
             continue
 
+        # Use scenario-specific dataset if one was registered (e.g., for overrides).
+        # dimension_mappings.json5 only contains baseline__ dataset IDs, so we must
+        # check whether a scenario-specific dataset exists and substitute it.
+        scenario_dataset_id = f"{scenario}__{table_name}"
+        try:
+            mgr.dataset_manager.get_by_id(scenario_dataset_id)
+            effective_mapping = dict(mapping)
+            effective_mapping["dataset_id"] = scenario_dataset_id
+            logger.info(
+                "Using scenario-specific dataset {} instead of {}",
+                scenario_dataset_id,
+                dataset_id,
+            )
+        except DSGValueNotRegistered:
+            effective_mapping = mapping
+
         _process_dataset_mapping(
             con=con,
-            mapping=mapping,
+            mapping=effective_mapping,
             mappings_dir=mappings_dir,
             mgr=mgr,
             scenario=scenario,

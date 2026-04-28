@@ -1024,3 +1024,93 @@ def test_create_project_with_env_var(copy_project_input_data: tuple[Path, Path, 
         f"Expected dataset path '{expected_dataset_path}' not found in output. "
         f"Output was: {result.output}"
     )
+
+
+def test_scenario_dataset_override_loaded(
+    copy_project_input_data: tuple[Path, Path, Path],
+) -> None:
+    """Verify that scenario dataset overrides are loaded through make_mapped_datasets.
+
+    This tests datasets that go through dimension_mappings.json5 (e.g.,
+    vehicle_per_capita_regressions), which is where the override substitution bug occurs.
+    Creates a scenario that overrides vehicle_per_capita_regressions with different
+    regression parameters and verifies the scenario table differs from baseline.
+    """
+    tmp_path, project_input_dir, project_config_file = copy_project_input_data
+
+    # Create an override CSV with different regression parameters.
+    # Baseline has a0_lin=0.025 for Region_A; override uses 0.999.
+    override_csv = project_input_dir / "alt_vehicle_per_capita.csv"
+    override_csv.write_text(
+        "region,metric,value\n"
+        "Region_A,a0_lin,0.999\n"
+        "Region_A,a1_lin,0.00025\n"
+        "Region_A,t0_lin,2024.0\n"
+        "Region_B,a0_lin,0.40\n"
+        "Region_B,a1_lin,0.004\n"
+        "Region_B,t0_lin,2024.0\n"
+    )
+
+    # Add a scenario that overrides vehicle_per_capita_regressions
+    config = load_json_file(project_config_file)
+    config["scenarios"].append(
+        {
+            "name": "high_vehicles",
+            "use_ev_projection": True,
+            "vehicle_per_capita_regressions": str(override_csv),
+        }
+    )
+    dump_json_file(config, project_config_file)
+
+    # Create the project
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "projects",
+            "create",
+            str(project_config_file),
+            "-d",
+            str(tmp_path),
+            "--dataset",
+            "global-test",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    project_dir = tmp_path / "test_project"
+    with Project.load(project_dir) as project:
+        con = project.con
+
+        # Find the baseline and scenario tables for vehicle_per_capita_regressions
+        baseline_rows = con.sql(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'dsgrid_data' "
+            "AND table_name LIKE 'baseline__vehicle_per_capita_regressions__%'"
+        ).fetchall()
+        scenario_rows = con.sql(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'dsgrid_data' "
+            "AND table_name LIKE 'high_vehicles__vehicle_per_capita_regressions__%'"
+        ).fetchall()
+        assert len(baseline_rows) > 0, "Baseline vehicle_per_capita table not found"
+        assert len(scenario_rows) > 0, "Scenario vehicle_per_capita table not found"
+
+        baseline_table = f"dsgrid_data.{baseline_rows[0][0]}"
+        scenario_table = f"dsgrid_data.{scenario_rows[0][0]}"
+
+        baseline_df = con.sql(f"SELECT * FROM {baseline_table} ORDER BY value").df()
+        scenario_df = con.sql(f"SELECT * FROM {scenario_table} ORDER BY value").df()
+
+        assert len(baseline_df) > 0, "Baseline table is empty"
+        assert len(scenario_df) > 0, "Scenario table is empty"
+
+        # The override has a0_lin=0.999 for country_1 vs baseline 0.025.
+        # If the bug is present, both tables will have identical data.
+        baseline_values = sorted(baseline_df["value"].tolist())
+        scenario_values = sorted(scenario_df["value"].tolist())
+        assert baseline_values != scenario_values, (
+            "Scenario vehicle_per_capita_regressions data is identical to baseline — "
+            "the override was not loaded. "
+            f"Baseline: {baseline_values}, Scenario: {scenario_values}"
+        )
