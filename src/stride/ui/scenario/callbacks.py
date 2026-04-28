@@ -14,6 +14,7 @@ from stride.api.utils import (
     TimeGroupAgg,
     WeatherVar,
 )
+from stride.models import UnsupportedInAnnualMode
 from stride.ui.plotting.utils import get_error_annotation_style, get_neutral_color
 
 from stride.ui.palette import ColorCategory
@@ -196,10 +197,16 @@ def update_summary_stats(
         consumption_df = data_handler.get_annual_electricity_consumption(
             scenarios=[scenario], years=years
         )
-        peak_demand_df = data_handler.get_annual_peak_demand(scenarios=[scenario], years=years)
+        try:
+            peak_demand_df = data_handler.get_annual_peak_demand(scenarios=[scenario], years=years)
+        except UnsupportedInAnnualMode:
+            peak_demand_df = None
         # Convert to dictionaries for fast lookup
         consumption_by_year = consumption_df.set_index("year")["value"].to_dict()
-        peak_demand_by_year = peak_demand_df.set_index("year")["value"].to_dict()
+        if peak_demand_df is not None:
+            peak_demand_by_year = peak_demand_df.set_index("year")["value"].to_dict()
+        else:
+            peak_demand_by_year = {}
 
         # Get values for selected year
         annual_consumption = consumption_by_year.get(selected_year, 0)
@@ -239,8 +246,8 @@ def update_summary_stats(
         return (
             f"{annual_consumption:,.0f}",
             consumption_cagr,
-            f"{peak_demand:,.0f}",
-            peak_demand_cagr,
+            f"{peak_demand:,.0f}" if peak_demand_df is not None else "N/A (annual mode)",
+            peak_demand_cagr if peak_demand_df is not None else "N/A",
         )
 
     except Exception as e:

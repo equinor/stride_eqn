@@ -7,6 +7,10 @@ from dsgrid.data_models import DSGBaseModel
 from pydantic import Field, field_validator
 
 
+class UnsupportedInAnnualMode(Exception):
+    """Raised when an operation requiring hourly data is called in annual-only mode."""
+
+
 class DatasetType(StrEnum):
     ENERGY_BY_SECTOR = "energy_by_sector"
     ENERGY_INTENSITY_BY_SECTOR = "energy_intensity_by_sector"
@@ -183,6 +187,12 @@ class ModelParameters(DSGBaseModel):  # type: ignore
         "raised to this minimum threshold to prevent unrealistic load concentration. "
         "Smaller values create smoother transitions. Typical values: 5.0 (aggressive), 10.0 (moderate), 20.0 (gentle). "
         "Only used when enable_shoulder_month_smoothing is True.",
+    )
+    annual_projection_only: bool = Field(
+        default=False,
+        description="When True, skip hourly load shape computation and produce annual-only "
+        "energy projections. This is much faster but disables peak demand, load duration curves, "
+        "and all time-series visualizations in the dashboard.",
     )
 
 

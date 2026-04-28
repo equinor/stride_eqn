@@ -125,6 +125,13 @@ class Project:
             # Skip computing mapped datasets for tables that will be replaced with
             # baseline views (avoids expensive redundant computation)
             skip_tables = unchanged_tables_by_scenario.get(scenario.name, [])
+            # In annual-only mode, skip the load_shapes dataset (only needed for
+            # hourly load shape expansion which is bypassed in annual mode)
+            if config.model_parameters.annual_projection_only:
+                if "load_shapes" not in skip_tables:
+                    skip_tables.append("load_shapes")
+                if "weather_bait" not in skip_tables:
+                    skip_tables.append("weather_bait")
             make_mapped_datasets(
                 project.con, dataset_dir, project.path, scenario.name, skip_tables
             )
@@ -466,7 +473,10 @@ class Project:
         with importlib.resources.as_file(dbt_resource) as dbt_src:
             shutil.copytree(dbt_src, dbt_dir)
 
-        src_file = dbt_dir / "energy_projection_scenario_placeholder.sql"
+        if self._config.model_parameters.annual_projection_only:
+            src_file = dbt_dir / "energy_projection_annual_scenario_placeholder.sql"
+        else:
+            src_file = dbt_dir / "energy_projection_scenario_placeholder.sql"
         dst_file = dbt_dir / "models" / "energy_projection.sql"
         shutil.copyfile(src_file, dst_file)
 
@@ -568,7 +578,11 @@ class Project:
             # TODO: May want to run `build` instead of `run` if we add dbt tests.
             # Use dbt from the same environment as the running Python interpreter
             dbt_executable = Path(sys.executable).parent / "dbt"
-            cmd = [str(dbt_executable), "run", "--vars", vars_string]
+            cmd = [str(dbt_executable), "run"]
+            if self._config.model_parameters.annual_projection_only:
+                # Only run models needed for the annual energy_projection view
+                cmd += ["--select", "+energy_projection"]
+            cmd += ["--vars", vars_string]
             self._con.close()
             try:
                 os.chdir(self._path / DBT_DIR)
@@ -609,32 +623,33 @@ class Project:
                 row_count,
             )
 
-            # Log temperature multiplier statistics
-            multiplier_stats = self._con.sql(
-                f"""
-                SELECT
-                    MIN(heating_multiplier) AS min_heating,
-                    MAX(heating_multiplier) AS max_heating,
-                    MIN(cooling_multiplier) AS min_cooling,
-                    MAX(cooling_multiplier) AS max_cooling,
-                    MIN(other_multiplier) AS min_other,
-                    MAX(other_multiplier) AS max_other
-                FROM {scenario.name}.temperature_multipliers
-                """
-            ).fetchone()
+            # Log temperature multiplier statistics (only available in hourly mode)
+            if not self._config.model_parameters.annual_projection_only:
+                multiplier_stats = self._con.sql(
+                    f"""
+                    SELECT
+                        MIN(heating_multiplier) AS min_heating,
+                        MAX(heating_multiplier) AS max_heating,
+                        MIN(cooling_multiplier) AS min_cooling,
+                        MAX(cooling_multiplier) AS max_cooling,
+                        MIN(other_multiplier) AS min_other,
+                        MAX(other_multiplier) AS max_other
+                    FROM {scenario.name}.temperature_multipliers
+                    """
+                ).fetchone()
 
-            if multiplier_stats:
-                logger.info(
-                    "Temperature multiplier ranges for scenario={}: "
-                    "heating=[{:.3f}, {:.3f}], cooling=[{:.3f}, {:.3f}], other=[{:.3f}, {:.3f}]",
-                    scenario.name,
-                    multiplier_stats[0],
-                    multiplier_stats[1],
-                    multiplier_stats[2],
-                    multiplier_stats[3],
-                    multiplier_stats[4],
-                    multiplier_stats[5],
-                )
+                if multiplier_stats:
+                    logger.info(
+                        "Temperature multiplier ranges for scenario={}: "
+                        "heating=[{:.3f}, {:.3f}], cooling=[{:.3f}, {:.3f}], other=[{:.3f}, {:.3f}]",
+                        scenario.name,
+                        multiplier_stats[0],
+                        multiplier_stats[1],
+                        multiplier_stats[2],
+                        multiplier_stats[3],
+                        multiplier_stats[4],
+                        multiplier_stats[5],
+                    )
 
             # Inject custom demand components (after dbt, before copying to main)
             # dbt outputs energy_projection as a view; materialize it as a table
@@ -689,6 +704,9 @@ class Project:
         2. Resolve the load profile (flat only for now; sector/enduse reference in CP3)
         3. Distribute annual energy into 8760 hours using the profile
         4. INSERT rows into {scenario}.energy_projection
+
+        In annual_projection_only mode, annual totals are inserted directly as single
+        rows per model_year (no hourly distribution).
 
         Uses defensive DELETE before insert to ensure idempotency.
 
@@ -745,16 +763,33 @@ class Project:
                 f" AND metric = '{component.metric}'"
             )
 
-            # Generate and insert hourly rows using the appropriate profile
-            profile_sql = self._build_profile_sql(
-                component, scenario.name, model_years_str
-            )
+            if self._config.model_parameters.annual_projection_only:
+                # In annual mode, insert annual totals directly (no hourly distribution)
+                insert_sql = f"""
+                    INSERT INTO {scenario.name}.energy_projection
+                    SELECT
+                        NULL::TIMESTAMP AS timestamp,
+                        model_year,
+                        '{scenario.name}' AS scenario,
+                        '{component.sector}' AS sector,
+                        '{self._config.country}' AS geography,
+                        '{component.metric}' AS metric,
+                        value
+                    FROM {staging_table}
+                    WHERE model_year IN ({model_years_str})
+                """
+                self._con.sql(insert_sql)
+            else:
+                # Generate and insert hourly rows using the appropriate profile
+                profile_sql = self._build_profile_sql(
+                    component, scenario.name, model_years_str
+                )
 
-            insert_sql = f"""
-                INSERT INTO {scenario.name}.energy_projection
-                {profile_sql}
-            """
-            self._con.sql(insert_sql)
+                insert_sql = f"""
+                    INSERT INTO {scenario.name}.energy_projection
+                    {profile_sql}
+                """
+                self._con.sql(insert_sql)
 
             # Count injected rows
             count = self._con.sql(

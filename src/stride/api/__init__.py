@@ -25,6 +25,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from stride.models import UnsupportedInAnnualMode
 from stride.project import Project
 
 from .utils import (
@@ -132,6 +133,19 @@ class APIClient:
     def db(self, connection: DuckDBPyConnection | None) -> None:
         """Set the database connection on the project (used for testing)."""
         self._con = connection
+
+    @property
+    def is_annual_only(self) -> bool:
+        """Return True if the project was computed in annual-only mode."""
+        return self.project.config.model_parameters.annual_projection_only
+
+    def _check_hourly_available(self, method_name: str) -> None:
+        """Raise UnsupportedInAnnualMode if the project is in annual-only mode."""
+        if self.is_annual_only:
+            raise UnsupportedInAnnualMode(
+                f"{method_name} requires hourly data. "
+                "Re-run with annual_projection_only=false to enable this."
+            )
 
     @property
     def years(self) -> list[int]:
@@ -522,6 +536,7 @@ class APIClient:
           | high_growth | 2025 | Commercial  | 1600  |
           |-------------|------|-------------|-------|
         """
+        self._check_hourly_available("get_annual_peak_demand")
         logger.debug(
             f"get_annual_peak_demand called with: scenarios={scenarios}, years={years}, group_by={group_by}"
         )
@@ -784,6 +799,7 @@ class APIClient:
         >>> # Single year, single scenario
         >>> df = client.get_load_duration_curve(2030, ["baseline"])
         """
+        self._check_hourly_available("get_load_duration_curve")
 
         logger.debug(f"get_load_duration_curve called with: years={years}, scenarios={scenarios}")
         # Handle defaults
@@ -1156,6 +1172,7 @@ class APIClient:
           | baseline | 2030 | 2           | 5666.5 |
           |----------|------|-------------|--------|
         """
+        self._check_hourly_available("get_time_series_comparison")
         logger.debug(
             f"get_time_series_comparison called with: scenario={scenario}, years={years}, group_by={group_by}, resample={resample}"
         )
@@ -1311,7 +1328,8 @@ class APIClient:
         group_by: TimeGroup = "Seasonal",
         agg: TimeGroupAgg = "Average Day",
     ) -> pd.DataFrame:
-        """
+        """Get seasonal load line data.
+
         Parameters
         ----------
         scenario : str
@@ -1372,6 +1390,7 @@ class APIClient:
           | baseline | 2025 | Spring | Weekday  | 0           | 2900.7 |
           |----------|------|--------|----------|-------------|--------|
         """
+        self._check_hourly_available("get_seasonal_load_lines")
         logger.debug(
             f"get_seasonal_load_lines called with: scenario={scenario}, years={years}, group_by={group_by}, agg={agg}"
         )
@@ -1468,6 +1487,7 @@ class APIClient:
           | baseline    | 2030 | Spring | 0           | Industrial  | 1600.3|
           |-------------|------|--------|-------------|-------------|-------|
         """
+        self._check_hourly_available("get_seasonal_load_area")
         logger.debug(
             f"get_seasonal_load_area called with: scenario={scenario}, year={year}, group_by={group_by}, agg={agg}, breakdown={breakdown}"
         )
