@@ -61,12 +61,14 @@ ev_annual_energy AS (
 stride_annual_energy AS (
     -- Combine base energy intensity projections with optional EV projections
     -- If use_ev_projection is true, replace Transportation + Road with EV-based calculation
+    -- Tag each row with energy_source so we can assign distinct metrics later
     SELECT
         geography,
         model_year,
         sector,
         subsector,
-        stride_annual_total
+        stride_annual_total,
+        'base' AS energy_source
     FROM stride_annual_energy_base
     WHERE NOT (sector = 'Transportation' AND subsector = 'Road' AND {{ var("use_ev_projection", False) }})
     
@@ -77,7 +79,8 @@ stride_annual_energy AS (
         model_year,
         sector,
         subsector,
-        stride_annual_total
+        stride_annual_total,
+        'ev' AS energy_source
     FROM ev_annual_energy
 ),
 
@@ -86,10 +89,12 @@ scaling_factors AS (
     -- This scales the temperature-adjusted load shapes to match STRIDE totals
     -- Same scaling factor applies to all enduses within a sector
     -- Note: Load shapes are at sector level, so we aggregate subsectors
+    -- When EV is enabled, Transportation gets two scaling factors (base vs ev)
     SELECT
         ls.geography,
         ls.model_year,
         ls.sector,
+        stride.energy_source,
         CASE 
             WHEN ls.load_shape_annual_total > 0 
             THEN SUM(stride.stride_annual_total) / ls.load_shape_annual_total
@@ -100,10 +105,11 @@ scaling_factors AS (
         ON ls.geography = stride.geography
         AND ls.model_year = stride.model_year
         AND ls.sector = stride.sector
-    GROUP BY ls.geography, ls.model_year, ls.sector, ls.load_shape_annual_total
+    GROUP BY ls.geography, ls.model_year, ls.sector,
+             ls.load_shape_annual_total, stride.energy_source
 )
 
--- Apply scaling factors to create final hourly energy projections
+-- Non-EV rows: use base scaling factor, keep original end-use metric
 SELECT
     ls.timestamp,
     ls.model_year,
@@ -116,3 +122,25 @@ JOIN scaling_factors sf
     ON ls.geography = sf.geography
     AND ls.model_year = sf.model_year
     AND ls.sector = sf.sector
+WHERE sf.energy_source = 'base'
+
+UNION ALL
+
+-- EV rows: use EV scaling factor, single 'ev_charging' metric per hour.
+-- Aggregate load shape across enduses to avoid per-enduse duplication.
+-- Only applies to Transportation sector when EV projection is enabled.
+SELECT
+    ls.timestamp,
+    ls.model_year,
+    ls.geography,
+    ls.sector,
+    'ev_charging' AS metric,
+    SUM(ls.adjusted_value) * sf.scaling_factor AS value
+FROM load_shapes_filtered ls
+JOIN scaling_factors sf
+    ON ls.geography = sf.geography
+    AND ls.model_year = sf.model_year
+    AND ls.sector = sf.sector
+WHERE sf.energy_source = 'ev'
+  AND ls.sector = 'Transportation'
+GROUP BY ls.timestamp, ls.model_year, ls.geography, ls.sector, sf.scaling_factor

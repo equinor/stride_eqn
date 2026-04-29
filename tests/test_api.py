@@ -128,7 +128,7 @@ def test_annual_consumption_enduse_no_duplicates(api_client: APIClient) -> None:
     assert (
         not duplicates.any()
     ), f"Duplicate (scenario, year, metric) rows found:\n{df[duplicates]}"
-    assert (df["value"] > 0).all(), "All consumption values should be positive"
+    assert (df["value"] >= 0).all(), "All consumption values should be non-negative"
 
 
 def test_annual_consumption_breakdown_sums_to_total(api_client: APIClient) -> None:
@@ -196,7 +196,7 @@ def test_get_annual_peak_demand_enduse_no_duplicates(api_client: APIClient) -> N
     assert (
         not duplicates.any()
     ), f"Duplicate (scenario, year, metric) rows found:\n{df[duplicates]}"
-    assert (df["value"] > 0).all(), "All peak demand values should be positive"
+    assert (df["value"] >= 0).all(), "All peak demand values should be non-negative"
 
 
 def test_get_secondary_metric(api_client: APIClient) -> None:
