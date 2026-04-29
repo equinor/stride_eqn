@@ -219,34 +219,38 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
         description="Color palette organized into scenarios, model_years, sectors, and end_uses categories. Each category maps labels to hex/rgb color strings for the UI.",
     )
 
+    @staticmethod
+    def _resolve_scenario_paths(scenario: "Scenario", base_path: Path) -> None:
+        for field in Scenario.model_fields:
+            if field in ("name", "use_ev_projection", "custom_demand_overrides"):
+                continue
+            val = getattr(scenario, field)
+            if val is not None and not val.is_absolute():
+                setattr(scenario, field, (base_path / val).resolve())
+            val = getattr(scenario, field)
+            if val is not None and not val.exists():
+                msg = (
+                    f"Scenario={scenario.name} dataset={field} filename={val} "
+                    f"does not exist"
+                )
+                raise InvalidParameter(msg)
+        for key, val in scenario.custom_demand_overrides.items():
+            if not val.is_absolute():
+                val = (base_path / val).resolve()
+                scenario.custom_demand_overrides[key] = val
+            if not val.exists():
+                msg = (
+                    f"Scenario={scenario.name} custom_demand_override={key} "
+                    f"filename={val} does not exist"
+                )
+                raise InvalidParameter(msg)
+
     @classmethod
     def from_file(cls, filename: Path | str) -> Self:
         path = Path(filename)
         config = super().from_file(path)
         for scenario in config.scenarios:
-            for field in Scenario.model_fields:
-                if field in ("name", "use_ev_projection", "custom_demand_overrides"):
-                    continue
-                val = getattr(scenario, field)
-                if val is not None and not val.is_absolute():
-                    setattr(scenario, field, (path.parent / val).resolve())
-                val = getattr(scenario, field)
-                if val is not None and not val.exists():
-                    msg = (
-                        f"Scenario={scenario.name} dataset={field} filename={val} "
-                        f"does not exist"
-                    )
-                    raise InvalidParameter(msg)
-            for key, val in scenario.custom_demand_overrides.items():
-                if not val.is_absolute():
-                    val = (path.parent / val).resolve()
-                    scenario.custom_demand_overrides[key] = val
-                if not val.exists():
-                    msg = (
-                        f"Scenario={scenario.name} custom_demand_override={key} "
-                        f"filename={val} does not exist"
-                    )
-                    raise InvalidParameter(msg)
+            cls._resolve_scenario_paths(scenario, path.parent)
             for table in config.calculated_table_overrides:
                 if table.filename is not None and not table.filename.is_absolute():
                     table.filename = path.parent / table.filename
