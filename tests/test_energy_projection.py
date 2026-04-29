@@ -130,6 +130,7 @@ def compute_energy_projection_com_ind_tra_with_ev(
     For use_ev_projection=True:
     - Commercial and Industrial use standard energy intensity regression
     - Transportation/Road uses EV stock * km/vehicle * Wh/km calculation
+    - EV energy is tagged with metric='ev_charging' within Transportation sector
     """
     model_years_tuple = tuple(model_years)
 
@@ -169,21 +170,30 @@ def compute_energy_projection_com_ind_tra_with_ev(
     # Exclude Transportation/Road from base (will be replaced by EV calculation)
     stride_annual_energy_non_ev = con.sql(  # noqa: F841
         """
-        SELECT * FROM stride_annual_energy_base
+        SELECT geography, model_year, sector, subsector, stride_annual_total,
+               'base' AS energy_source
+        FROM stride_annual_energy_base
         WHERE NOT (sector = 'Transportation' AND subsector = 'Road')
     """
     )
 
     # Calculate EV annual energy
-    ev_annual_energy = compute_ev_annual_energy(con, scenario, country, model_years_tuple)  # noqa F841
+    ev_annual_energy_raw = compute_ev_annual_energy(con, scenario, country, model_years_tuple)  # noqa F841
+    ev_annual_energy = con.sql(  # noqa: F841
+        """
+        SELECT geography, model_year, sector, subsector, stride_annual_total,
+               'ev' AS energy_source
+        FROM ev_annual_energy_raw
+    """
+    )
 
     # Combine: non-EV sectors + EV Transportation/Road
     stride_annual_energy = con.sql(  # noqa: F841
         """
-        SELECT geography, model_year, sector, subsector, stride_annual_total
+        SELECT geography, model_year, sector, subsector, stride_annual_total, energy_source
         FROM stride_annual_energy_non_ev
         UNION ALL
-        SELECT geography, model_year, sector, subsector, stride_annual_total
+        SELECT geography, model_year, sector, subsector, stride_annual_total, energy_source
         FROM ev_annual_energy
     """
     )
@@ -201,12 +211,13 @@ def compute_energy_projection_com_ind_tra_with_ev(
     """
     )
 
-    # Compute scaling factors (aggregate subsectors since load shapes are at sector level)
+    # Compute scaling factors per (sector, energy_source)
     stride_by_sector = con.sql(  # noqa F841
         """
-        SELECT geography, model_year, sector, SUM(stride_annual_total) AS stride_annual_total
+        SELECT geography, model_year, sector, energy_source,
+               SUM(stride_annual_total) AS stride_annual_total
         FROM stride_annual_energy
-        GROUP BY geography, model_year, sector
+        GROUP BY geography, model_year, sector, energy_source
     """
     )
 
@@ -216,6 +227,7 @@ def compute_energy_projection_com_ind_tra_with_ev(
             ls.geography
             ,ls.model_year
             ,ls.sector
+            ,stride.energy_source
             ,CASE
                 WHEN ls.load_shape_annual_total > 0
                 THEN stride.stride_annual_total / ls.load_shape_annual_total
@@ -230,6 +242,8 @@ def compute_energy_projection_com_ind_tra_with_ev(
     )
 
     # Apply scaling factors to get final hourly projections
+    # Non-EV rows: keep original end-use metric
+    # EV rows: aggregate load shape across enduses, tag as 'ev_charging'
     return con.sql(
         f"""
         SELECT
@@ -245,6 +259,26 @@ def compute_energy_projection_com_ind_tra_with_ev(
             ON ls.geography = sf.geography
             AND ls.model_year = sf.model_year
             AND ls.sector = sf.sector
+        WHERE sf.energy_source = 'base'
+
+        UNION ALL
+
+        SELECT
+            ls.timestamp
+            ,ls.model_year
+            ,'{scenario}' AS scenario
+            ,ls.geography
+            ,ls.sector
+            ,'ev_charging' AS metric
+            ,SUM(ls.adjusted_value) * sf.scaling_factor AS value
+        FROM ls_cit ls
+        JOIN scaling_factors sf
+            ON ls.geography = sf.geography
+            AND ls.model_year = sf.model_year
+            AND ls.sector = sf.sector
+        WHERE sf.energy_source = 'ev'
+          AND ls.sector = 'Transportation'
+        GROUP BY ls.timestamp, ls.model_year, ls.geography, ls.sector, sf.scaling_factor
     """
     )
 

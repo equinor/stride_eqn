@@ -204,11 +204,12 @@ class TestFlatProfileInjection:
         """
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
-        count = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.energy_projection "
             "WHERE sector = 'Data Centers'"
-        ).fetchone()[0]
-        assert count == HOURS_PER_YEAR * len(MODEL_YEARS)
+        ).fetchone()
+        assert row is not None
+        assert row[0] == HOURS_PER_YEAR * len(MODEL_YEARS)
 
     def test_flat_injection_annual_totals(self, tmp_path: Path) -> None:
         con = duckdb.connect()
@@ -240,11 +241,12 @@ class TestFlatProfileInjection:
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
         for yr, expected in [(2025, 1_000_000), (2030, 2_000_000)]:
-            actual = con.sql(
+            row = con.sql(
                 f"SELECT SUM(value) FROM baseline.energy_projection "
                 f"WHERE sector = 'DC' AND model_year = {yr}"
-            ).fetchone()[0]
-            assert abs(actual - expected) < 0.01
+            ).fetchone()
+            assert row is not None
+            assert abs(row[0] - expected) < 0.01
 
     def test_flat_injection_preserves_existing(self, tmp_path: Path) -> None:
         con = duckdb.connect()
@@ -253,9 +255,11 @@ class TestFlatProfileInjection:
         staging = "stride.custom__dc__baseline__annual"
         create_table_from_file(con, staging, csv_path, replace=True)
 
-        before = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.energy_projection WHERE sector = 'Residential'"
-        ).fetchone()[0]
+        ).fetchone()
+        assert row is not None
+        before = row[0]
 
         sql = f"""
             WITH annual_data AS (
@@ -272,10 +276,11 @@ class TestFlatProfileInjection:
         """
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
-        after = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.energy_projection WHERE sector = 'Residential'"
-        ).fetchone()[0]
-        assert after == before
+        ).fetchone()
+        assert row is not None
+        assert row[0] == before
 
     def test_idempotent_delete_reinsert(self, tmp_path: Path) -> None:
         con = duckdb.connect()
@@ -295,10 +300,11 @@ class TestFlatProfileInjection:
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
         con.sql("DELETE FROM baseline.energy_projection WHERE sector = 'DC'")
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
-        count = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.energy_projection WHERE sector = 'DC'"
-        ).fetchone()[0]
-        assert count == HOURS_PER_YEAR * len(MODEL_YEARS)
+        ).fetchone()
+        assert row is not None
+        assert row[0] == HOURS_PER_YEAR * len(MODEL_YEARS)
 
 
 # ---------------------------------------------------------------------------
@@ -338,11 +344,12 @@ class TestReferenceProfileInjection:
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
         for yr, expected in [(2025, 1_000_000), (2030, 2_000_000)]:
-            actual = con.sql(
+            row = con.sql(
                 f"SELECT SUM(value) FROM baseline.energy_projection "
                 f"WHERE sector = 'HP' AND model_year = {yr}"
-            ).fetchone()[0]
-            assert abs(actual - expected) < 0.01
+            ).fetchone()
+            assert row is not None
+            assert abs(row[0] - expected) < 0.01
 
     def test_sector_profile_shape_not_flat(self, tmp_path: Path) -> None:
         con = duckdb.connect()
@@ -412,11 +419,12 @@ class TestReferenceProfileInjection:
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
         for yr, expected in [(2025, 1_000_000), (2030, 2_000_000)]:
-            actual = con.sql(
+            row = con.sql(
                 f"SELECT SUM(value) FROM baseline.energy_projection "
                 f"WHERE sector = 'HP' AND model_year = {yr}"
-            ).fetchone()[0]
-            assert abs(actual - expected) < 0.01
+            ).fetchone()
+            assert row is not None
+            assert abs(row[0] - expected) < 0.01
 
     def test_sector_and_enduse_profiles_differ(self, tmp_path: Path) -> None:
         """sector:Residential and enduse:heating should produce different shapes."""
@@ -499,11 +507,12 @@ class TestFileProfileInjection:
         """
         con.sql(f"INSERT INTO baseline.energy_projection {sql}")
 
-        actual = con.sql(
+        row = con.sql(
             "SELECT SUM(value) FROM baseline.energy_projection "
             "WHERE sector = 'DC' AND model_year = 2025"
-        ).fetchone()[0]
-        assert abs(actual - 1_000_000.0) < 0.01
+        ).fetchone()
+        assert row is not None
+        assert abs(row[0] - 1_000_000.0) < 0.01
 
     def test_file_profile_shape_not_flat(self, tmp_path: Path) -> None:
         """A non-uniform profile file should produce non-uniform hourly values."""
@@ -607,22 +616,24 @@ class TestEdgeCases:
         con = duckdb.connect()
         _setup_db(con, with_load_shapes=True)
 
-        count = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.load_shapes_expanded "
             "WHERE sector = 'Manufacturing' AND model_year IN (2025, 2030)"
-        ).fetchone()[0]
-        assert count == 0
+        ).fetchone()
+        assert row is not None
+        assert row[0] == 0
 
     def test_unknown_enduse_reference(self, tmp_path: Path) -> None:
         """Referencing a non-existent enduse in load_shapes_expanded returns 0 rows."""
         con = duckdb.connect()
         _setup_db(con, with_load_shapes=True)
 
-        count = con.sql(
+        row = con.sql(
             "SELECT COUNT(*) FROM baseline.load_shapes_expanded "
             "WHERE enduse = 'transport' AND model_year IN (2025, 2030)"
-        ).fetchone()[0]
-        assert count == 0
+        ).fetchone()
+        assert row is not None
+        assert row[0] == 0
 
     def test_file_profile_wrong_row_count(self, tmp_path: Path) -> None:
         """Profile CSV with != 8760 rows should be detectable."""
@@ -630,8 +641,9 @@ class TestEdgeCases:
         con = duckdb.connect()
         con.sql("CREATE SCHEMA IF NOT EXISTS stride")
         create_table_from_file(con, "stride.profile", profile_path, replace=True)
-        count = con.sql("SELECT COUNT(*) FROM stride.profile").fetchone()[0]
-        assert count != 8760
+        row = con.sql("SELECT COUNT(*) FROM stride.profile").fetchone()
+        assert row is not None
+        assert row[0] != 8760
 
     def test_file_profile_missing_value_column(self, tmp_path: Path) -> None:
         """Profile CSV without 'value' column should be detectable."""

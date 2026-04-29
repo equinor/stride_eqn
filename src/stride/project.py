@@ -757,11 +757,13 @@ class Project:
             self._con.sql(insert_sql)
 
             # Count injected rows
-            count = self._con.sql(
+            row = self._con.sql(
                 f"SELECT COUNT(*) FROM {scenario.name}.energy_projection "
                 f"WHERE sector = '{component.sector}'"
                 f" AND metric = '{component.metric}'"
-            ).fetchone()[0]
+            ).fetchone()
+            assert row is not None
+            count = row[0]
             total_injected += count
 
             logger.info(
@@ -774,15 +776,19 @@ class Project:
 
             # Verify annual totals match input for years that were injected
             for year in model_years:
-                expected = self._con.sql(
+                row = self._con.sql(
                     f"SELECT value FROM {staging_table} WHERE model_year = {year}"
-                ).fetchone()[0]
-                actual = self._con.sql(
+                ).fetchone()
+                assert row is not None
+                expected = row[0]
+                row = self._con.sql(
                     f"SELECT SUM(value) FROM {scenario.name}.energy_projection "
                     f"WHERE sector = '{component.sector}'"
                     f" AND metric = '{component.metric}'"
                     f" AND model_year = {year}"
-                ).fetchone()[0]
+                ).fetchone()
+                assert row is not None
+                actual = row[0]
                 if actual is None:
                     logger.warning(
                         "No hourly timestamps found for year {} — "
@@ -893,11 +899,13 @@ class Project:
 
         Raises InvalidParameter if the reference value is not found.
         """
-        count = self._con.sql(
+        row = self._con.sql(
             f"SELECT COUNT(*) FROM {scenario_name}.load_shapes_expanded "
             f"WHERE {dimension} = '{ref_value}' "
             f"AND model_year IN ({model_years_str})"
-        ).fetchone()[0]
+        ).fetchone()
+        assert row is not None
+        count = row[0]
         if count == 0:
             available = sorted(
                 row[0]
@@ -1045,9 +1053,11 @@ class Project:
             )
             raise InvalidParameter(msg)
 
-        row_count = self._con.sql(
+        row = self._con.sql(
             f"SELECT COUNT(*) FROM {profile_table}"
-        ).fetchone()[0]
+        ).fetchone()
+        assert row is not None
+        row_count = row[0]
         if row_count != 8760:
             msg = (
                 f"Custom profile file must have exactly 8760 rows "
