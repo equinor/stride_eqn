@@ -113,6 +113,10 @@ class Scenario(DSGBaseModel):  # type: ignore
         default=None,
         description="Optional path to a user-provided vehicle_per_capita_regressions table",
     )
+    skip_custom_demand: bool = Field(
+        default=False,
+        description="When True, skip custom demand component injection for this scenario.",
+    )
     custom_demand_overrides: dict[str, Path] = Field(
         default={},
         description=(
@@ -222,7 +226,7 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
     @staticmethod
     def _resolve_scenario_paths(scenario: "Scenario", base_path: Path) -> None:
         for field in Scenario.model_fields:
-            if field in ("name", "use_ev_projection", "custom_demand_overrides"):
+            if field in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides"):
                 continue
             val = getattr(scenario, field)
             if val is not None and not val.is_absolute():

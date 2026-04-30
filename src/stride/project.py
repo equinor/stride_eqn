@@ -518,7 +518,7 @@ class Project:
         return [
             x
             for x in Scenario.model_fields
-            if x not in ("name", "use_ev_projection", "custom_demand_overrides")
+            if x not in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides")
         ]
 
     def persist(self) -> None:
@@ -639,7 +639,7 @@ class Project:
             # Inject custom demand components (after dbt, before copying to main)
             # dbt outputs energy_projection as a view; materialize it as a table
             # so we can INSERT custom demand rows into it.
-            if self._config.custom_demand_components:
+            if self._config.custom_demand_components and not scenario.skip_custom_demand:
                 self._con.sql(
                     f"CREATE TABLE {scenario.name}.__ep_tmp AS "
                     f"SELECT * FROM {scenario.name}.energy_projection"
@@ -873,8 +873,11 @@ class Project:
                 WHERE model_year IN ({model_years_str})
             ),
             hourly_timestamps AS (
-                SELECT DISTINCT timestamp, model_year
-                FROM {scenario_name}.energy_projection
+                SELECT timestamp, model_year
+                FROM (
+                    SELECT DISTINCT timestamp, model_year
+                    FROM {scenario_name}.energy_projection
+                )
             )
             SELECT
                 ht.timestamp,
@@ -1072,11 +1075,14 @@ class Project:
                 WHERE model_year IN ({model_years_str})
             ),
             hourly_timestamps AS (
-                SELECT DISTINCT timestamp, model_year,
+                SELECT timestamp, model_year,
                     ROW_NUMBER() OVER (
                         PARTITION BY model_year ORDER BY timestamp
                     ) AS hour_idx
-                FROM {scenario_name}.energy_projection
+                FROM (
+                    SELECT DISTINCT timestamp, model_year
+                    FROM {scenario_name}.energy_projection
+                )
             ),
             profile_data AS (
                 SELECT
