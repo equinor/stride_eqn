@@ -300,6 +300,10 @@ def grouped_stacked_bars(
         for group in groups:
             df_subset = df[(df[group_col] == group) & (df[stack_col] == stack_cat)]
 
+            # Only assign legend entry to traces that have data, so Plotly renders it
+            has_data = not df_subset.empty
+            show_in_legend = has_data and stack_cat not in added_stack_legend
+
             fig.add_trace(
                 go.Bar(
                     x=df_subset[year_col].astype(str),
@@ -314,13 +318,14 @@ def grouped_stacked_bars(
                     ),
                     offsetgroup=group,
                     legendrank=1,
-                    showlegend=stack_cat not in added_stack_legend,
+                    showlegend=show_in_legend,
                     hovertemplate=f"{group} - {stack_cat}: %{{y:.2f}}<extra></extra>",
                 )
             )
             if not stack_group_title_added:
                 stack_group_title_added = True
-            added_stack_legend.add(stack_cat)
+            if has_data:
+                added_stack_legend.add(stack_cat)
 
     # Add colored indicator bars for scenarios (visual reference)
     # These appear in the legend but clicking them only toggles the indicator itself,
