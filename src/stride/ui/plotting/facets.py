@@ -181,7 +181,9 @@ def seasonal_load_lines(
     return fig
 
 
-def _determine_breakdown_config(df: pd.DataFrame) -> tuple[str | None, list[str]]:
+def _determine_breakdown_config(
+    df: pd.DataFrame, stack_order: list[str] | None = None
+) -> tuple[str | None, list[str]]:
     """Determine breakdown column and categories for area charts."""
     breakdown_col = None
     if "sector" in df.columns:
@@ -191,9 +193,13 @@ def _determine_breakdown_config(df: pd.DataFrame) -> tuple[str | None, list[str]
     elif "metric" in df.columns:
         breakdown_col = "metric"
 
-    breakdown_categories = []
+    breakdown_categories: list[str] = []
     if breakdown_col:
-        breakdown_categories = sorted(df[breakdown_col].unique())
+        from stride.ui.plotting.utils import apply_custom_order
+
+        breakdown_categories = apply_custom_order(
+            list(df[breakdown_col].unique()), stack_order
+        )
 
     return breakdown_col, breakdown_categories
 
@@ -277,7 +283,10 @@ def _add_stacked_area_traces(
 
 
 def seasonal_load_area(
-    df: pd.DataFrame, color_generator: "ColorManager", template: str = DEFAULT_PLOTLY_TEMPLATE
+    df: pd.DataFrame,
+    color_generator: "ColorManager",
+    template: str = DEFAULT_PLOTLY_TEMPLATE,
+    stack_order: list[str] | None = None,
 ) -> go.Figure:
     """Create faceted area charts for seasonal load patterns."""
     if df.empty:
@@ -291,7 +300,7 @@ def seasonal_load_area(
     hoverlabel_style = get_hoverlabel_style(template)
 
     layout_config = determine_facet_layout(df)
-    breakdown_col, breakdown_categories = _determine_breakdown_config(df)
+    breakdown_col, breakdown_categories = _determine_breakdown_config(df, stack_order)
     has_breakdown = breakdown_col is not None
 
     # Create figure
@@ -400,6 +409,7 @@ def faceted_time_series(
     value_col: str = "value",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> go.Figure:
     """
     Create faceted subplots for each scenario with shared legend.
@@ -441,7 +451,8 @@ def faceted_time_series(
 
     # Create and add traces
     traces_info = create_faceted_traces(
-        df, scenarios, color_generator, chart_type, group_by, value_col, breakdown_type
+        df, scenarios, color_generator, chart_type, group_by, value_col, breakdown_type,
+        stack_order,
     )
     for trace, row, col in traces_info:
         fig.add_trace(trace, row=row, col=col)

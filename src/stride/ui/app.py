@@ -26,6 +26,7 @@ from stride.ui.plotting.utils import (
 from stride.ui.project_manager import add_recent_project, get_recent_projects
 from stride.ui.scenario import create_scenario_layout, register_scenario_callbacks
 from stride.ui.settings import create_settings_layout, register_settings_callbacks
+from stride.ui.settings.callbacks import register_ordering_callbacks
 from stride.ui.settings.layout import (
     get_temp_color_edits,
     get_temp_edits_for_category,
@@ -514,6 +515,8 @@ def create_app(  # noqa: C901
             dcc.Store(id="sidebar-open", data=False),
             dcc.Store(id="chart-refresh-trigger", data=0),
             dcc.Store(id="theme-store", data=DEFAULT_CSS_THEME),
+            dcc.Store(id="sector-order-store", data=palette.sector_order),
+            dcc.Store(id="end-use-order-store", data=palette.end_use_order),
             # Dynamic scenario CSS that updates with palette changes
             html.Div(
                 id="scenario-css-container",
@@ -941,6 +944,8 @@ def create_app(  # noqa: C901
         get_current_color_manager,
         on_palette_change,
     )
+
+    register_ordering_callbacks(get_current_color_manager)
 
     # Callback to update scenario CSS when palette changes
     @callback(
@@ -1458,6 +1463,8 @@ def create_app_no_project(
             dcc.Store(id="chart-refresh-trigger", data=0),
             dcc.Store(id="theme-store", data=DEFAULT_CSS_THEME),
             dcc.Store(id="color-edits-counter", data=0),
+            dcc.Store(id="sector-order-store", data=[]),
+            dcc.Store(id="end-use-order-store", data=[]),
             # Empty scenario CSS container
             html.Div(id="scenario-css-container", children=[], style={"display": "none"}),
             # Sidebar
@@ -1732,6 +1739,8 @@ def _register_no_project_callbacks(
         get_current_color_manager,
         _on_palette_change_no_project,
     )
+
+    register_ordering_callbacks(get_current_color_manager)
 
 
 def _register_refresh_projects_callback() -> None:

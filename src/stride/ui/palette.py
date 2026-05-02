@@ -251,6 +251,10 @@ class ColorPalette:
         self.sectors: dict[str, str] = {}
         self.end_uses: dict[str, str] = {}
 
+        # Custom display ordering for stacked charts
+        self.sector_order: list[str] = []
+        self.end_use_order: list[str] = []
+
     @property
     def palette(self) -> dict[str, str]:
         """Return a merged dictionary of all colors for backward compatibility.
@@ -619,6 +623,14 @@ class ColorPalette:
                     color_value = next(metric_iterator)
                 new_palette.sectors[normalized_key] = color_value
 
+        # Load custom ordering if present
+        sector_order = data.get("sector_order")
+        if isinstance(sector_order, list):
+            new_palette.sector_order = [s.lower() for s in sector_order if isinstance(s, str)]
+        end_use_order = data.get("end_use_order")
+        if isinstance(end_use_order, list):
+            new_palette.end_use_order = [s.lower() for s in end_use_order if isinstance(s, str)]
+
         return new_palette
 
     def refresh_category_colors(self, category: ColorCategory | str) -> None:
@@ -855,6 +867,10 @@ class ColorPalette:
             "sectors": self.sectors.copy(),
             "end_uses": self.end_uses.copy(),
         }
+        if self.sector_order:
+            result["sector_order"] = list(self.sector_order)
+        if self.end_use_order:
+            result["end_use_order"] = list(self.end_use_order)
         if self.has_custom_themes:
             result["themes"] = {
                 "scenarios": list(self.scenario_theme),

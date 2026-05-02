@@ -23,6 +23,16 @@ if TYPE_CHECKING:
     from stride.ui.plotting import StridePlots
 
 
+def _get_stack_order(plotter: "StridePlots", breakdown_value: str | None) -> list[str] | None:
+    """Get the custom stack order from the palette based on breakdown type."""
+    if not breakdown_value:
+        return None
+    palette = plotter.color_manager.get_palette()
+    if breakdown_value == "End Use":
+        return palette.end_use_order or None
+    return palette.sector_order or None
+
+
 def get_secondary_metric_label(metric: str) -> str:
     """Get a formatted label with units for a secondary metric."""
     metric_labels = {
@@ -304,6 +314,7 @@ def update_consumption_plot(
                 group_col="scenario",
                 show_scenario_indicators=False,
                 breakdown_type=breakdown_type,
+                stack_order=_get_stack_order(plotter, breakdown_value),
             )
         else:
             # Use theme-aware neutral gray color for the bars
@@ -444,6 +455,7 @@ def update_peak_plot(
                 group_col="scenario",
                 show_scenario_indicators=False,
                 breakdown_type=breakdown_type,
+                stack_order=_get_stack_order(plotter, breakdown_value),
             )
         else:
             # Use theme-aware neutral gray color for the bars
@@ -601,6 +613,7 @@ def update_timeseries_plot(
             df,
             group_by=stack_col.lower() if breakdown_value else None,
             breakdown_type=breakdown_type,
+            stack_order=_get_stack_order(plotter, breakdown_value),
         )
 
         # Add weather variable if selected
@@ -674,7 +687,10 @@ def update_yearly_plot(  # noqa: C901
 
         # Use the time_series function with area chart type
         fig = plotter.time_series(
-            df, group_by=stack_col.lower() if breakdown_value else None, chart_type="Area"
+            df,
+            group_by=stack_col.lower() if breakdown_value else None,
+            chart_type="Area",
+            stack_order=_get_stack_order(plotter, breakdown_value),
         )
 
         # Ensure y-axis starts at zero
@@ -878,7 +894,9 @@ def update_seasonal_area_plot(
             breakdown=breakdown_value,
         )
         # Create area plot using the new seasonal_load_area method
-        fig = plotter.seasonal_load_area(df)
+        fig = plotter.seasonal_load_area(
+            df, stack_order=_get_stack_order(plotter, breakdown_value)
+        )
         return fig
     except Exception as e:
         print(f"Error in seasonal area plot: {e}")
@@ -1014,6 +1032,8 @@ def _register_consumption_callbacks(
             Input("scenario-consumption-breakdown", "value"),
             Input("scenario-consumption-secondary", "value"),
             Input("chart-refresh-trigger", "data"),
+            Input("sector-order-store", "data"),
+            Input("end-use-order-store", "data"),
         ],
     )
     def _update_consumption_plot_callback(
@@ -1021,6 +1041,8 @@ def _register_consumption_callbacks(
         breakdown: ConsumptionBreakdown | Literal["None"],
         secondary_metric: SecondaryMetric | Literal["None"],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure | dict[str, Any]:
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
@@ -1029,6 +1051,9 @@ def _register_consumption_callbacks(
         # "compare" is the Home tab, not a scenario
         if scenario == "compare":
             raise PreventUpdate
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         return update_consumption_plot(
             data_handler, plotter, scenario, breakdown, secondary_metric
         )
@@ -1040,6 +1065,8 @@ def _register_consumption_callbacks(
             Input("scenario-peak-breakdown", "value"),
             Input("scenario-peak-secondary", "value"),
             Input("chart-refresh-trigger", "data"),
+            Input("sector-order-store", "data"),
+            Input("end-use-order-store", "data"),
         ],
     )
     def _update_peak_plot_callback(
@@ -1047,6 +1074,8 @@ def _register_consumption_callbacks(
         breakdown: ConsumptionBreakdown | Literal["None"],
         secondary_metric: SecondaryMetric | Literal["None"],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure | dict[str, Any]:
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
@@ -1055,6 +1084,9 @@ def _register_consumption_callbacks(
         # "compare" is the Home tab, not a scenario
         if scenario == "compare":
             raise PreventUpdate
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         return update_peak_plot(data_handler, plotter, scenario, breakdown, secondary_metric)
 
 
@@ -1073,6 +1105,8 @@ def _register_timeseries_callbacks(
             Input("scenario-timeseries-weather", "value"),
             Input("scenario-timeseries-years", "value"),
             Input("chart-refresh-trigger", "data"),
+            Input("sector-order-store", "data"),
+            Input("end-use-order-store", "data"),
         ],
     )
     def _update_timeseries_plot_callback(
@@ -1082,6 +1116,8 @@ def _register_timeseries_callbacks(
         weather_var: str | None,
         selected_years: int | str | Sequence[int | str],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure | dict[str, Any]:
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
@@ -1090,6 +1126,9 @@ def _register_timeseries_callbacks(
         # "compare" is the Home tab, not a scenario
         if scenario == "compare":
             raise PreventUpdate
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         return update_timeseries_plot(
             data_handler,
             plotter,
@@ -1109,6 +1148,8 @@ def _register_timeseries_callbacks(
             Input("scenario-yearly-weather", "value"),
             Input("scenario-yearly-year", "value"),
             Input("chart-refresh-trigger", "data"),
+            Input("sector-order-store", "data"),
+            Input("end-use-order-store", "data"),
         ],
     )
     def _update_yearly_plot_callback(
@@ -1118,6 +1159,8 @@ def _register_timeseries_callbacks(
         weather_var: str | None,
         selected_year: int,
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure | dict[str, Any]:
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
@@ -1126,6 +1169,9 @@ def _register_timeseries_callbacks(
         # "compare" is the Home tab, not a scenario
         if scenario == "compare":
             raise PreventUpdate
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         return update_yearly_plot(
             data_handler,
             plotter,
@@ -1186,6 +1232,8 @@ def _register_seasonal_callbacks(
             Input("scenario-seasonal-area-timegroup", "value"),
             Input("scenario-seasonal-area-weather", "value"),
             Input("chart-refresh-trigger", "data"),
+            Input("sector-order-store", "data"),
+            Input("end-use-order-store", "data"),
         ],
     )
     def _update_seasonal_area_plot_callback(
@@ -1196,6 +1244,8 @@ def _register_seasonal_callbacks(
         timegroup: TimeGroup,
         weather_var: WeatherVar | Literal["None"] | None,
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure | dict[str, Any]:
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
@@ -1204,6 +1254,9 @@ def _register_seasonal_callbacks(
         # "compare" is the Home tab, not a scenario
         if scenario == "compare":
             raise PreventUpdate
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         return update_seasonal_area_plot(
             data_handler, plotter, scenario, breakdown, selected_year, timegroup, agg, weather_var
         )
