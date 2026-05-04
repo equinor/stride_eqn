@@ -1870,6 +1870,8 @@ def _register_project_load_callback(
         Output("view-selector", "options"),
         Output("settings-view", "children"),
         Output("scenario-css-container", "children"),
+        Output("sector-order-store", "data"),
+        Output("end-use-order-store", "data"),
         Input("load-project-btn", "n_clicks"),
         Input("project-path-input", "n_submit"),
         Input("project-switcher-dropdown", "value"),
@@ -1943,6 +1945,8 @@ def _handle_project_load_impl(
             no_update,
             no_update,
             no_update,
+            no_update,
+            no_update,
         )
 
     raise PreventUpdate
@@ -1963,6 +1967,8 @@ def _build_successful_load_response(
         return (
             no_update,
             html.Span("Failed to initialize project", className="text-danger"),
+            no_update,
+            no_update,
             no_update,
             no_update,
             no_update,
@@ -2022,6 +2028,9 @@ def _build_successful_load_response(
     # Generate scenario CSS
     scenario_css = _generate_scenario_css_script(color_manager)
 
+    # Load saved ordering from palette
+    palette = color_manager.get_palette()
+
     return (
         current_path,
         html.Span(message, className="text-success"),
@@ -2035,6 +2044,8 @@ def _build_successful_load_response(
         nav_options,
         settings_layout,
         scenario_css,
+        palette.sector_order,
+        palette.end_use_order,
     )
 
 

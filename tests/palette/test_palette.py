@@ -220,6 +220,35 @@ class TestColorPaletteRoundTrip:
         for key in original.palette:
             assert restored.palette[key] == original.palette[key]
 
+    def test_round_trip_preserves_ordering(self) -> None:
+        """Test that to_dict and from_dict preserve sector_order and end_use_order."""
+        original = ColorPalette()
+        original.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+        original.update("commercial", "#3498DB", category=ColorCategory.SECTOR)
+        original.sector_order = ["commercial", "residential"]
+        original.end_use_order = ["lighting", "heating", "cooling"]
+
+        dict_repr = original.to_dict()
+        assert dict_repr["sector_order"] == ["commercial", "residential"]
+        assert dict_repr["end_use_order"] == ["lighting", "heating", "cooling"]
+
+        restored = ColorPalette.from_dict(dict_repr)
+        assert restored.sector_order == ["commercial", "residential"]
+        assert restored.end_use_order == ["lighting", "heating", "cooling"]
+
+    def test_round_trip_empty_ordering_omitted(self) -> None:
+        """Test that empty ordering lists are not included in to_dict output."""
+        original = ColorPalette()
+        original.update("residential", "#FF5733", category=ColorCategory.SECTOR)
+
+        dict_repr = original.to_dict()
+        assert "sector_order" not in dict_repr
+        assert "end_use_order" not in dict_repr
+
+        restored = ColorPalette.from_dict(dict_repr)
+        assert restored.sector_order == []
+        assert restored.end_use_order == []
+
 
 class TestColorPaletteColorGeneration:
     """Test color generation behavior."""

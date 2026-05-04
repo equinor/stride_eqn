@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 from dash import ALL, Input, Output, State, callback, ctx, html, no_update
@@ -9,7 +10,7 @@ from dash.exceptions import PreventUpdate
 from loguru import logger
 
 from stride.config import CACHED_PROJECTS_UPPER_BOUND, set_max_cached_projects
-from stride.ui.palette import ColorPalette
+from stride.ui.palette import ColorCategory, ColorPalette
 from stride.ui.settings.layout import (
     clear_temp_color_edits,
     create_color_preview_content,
@@ -1029,7 +1030,7 @@ def _is_valid_hex(color: str) -> bool:
 
 def _build_order_list_children(
     items: list[str], category: str, colors: dict[str, str] | None = None
-) -> list:
+) -> list[Any]:
     """Build ListGroupItem children for the ordering list.
 
     The list is displayed in reversed order so that the bottom of the UI
@@ -1091,8 +1092,113 @@ def _build_order_list_children(
     return children
 
 
+def _load_order_from_palette(
+    color_manager: Any,
+    palette_items_attr: str,
+    palette_order_attr: str,
+    color_category: ColorCategory,
+    category: str,
+    clear_saved: bool = False,
+) -> tuple[list[str], list[Any]]:
+    """Load ordering from the current palette and build UI children.
+
+    Parameters
+    ----------
+    clear_saved : bool
+        If True, reset the palette's saved order to empty (used by the reset button).
+    """
+    if not color_manager:
+        return [], []
+    palette = color_manager.get_palette()
+    if clear_saved:
+        setattr(palette, palette_order_attr, [])
+    saved_order = getattr(palette, palette_order_attr, [])
+    all_items = sorted(getattr(palette, palette_items_attr).keys())
+    new_order = saved_order if saved_order else all_items
+    colors = {k: palette.get(k, color_category) for k in new_order}
+    store_data = [] if clear_saved else new_order
+    return store_data, _build_order_list_children(new_order, category, colors)
+
+
+def _handle_reorder(
+    get_color_manager_func: Callable[[], Any],
+    current_order: list[str],
+    category: str,
+    palette_items_attr: str,
+    palette_order_attr: str,
+    color_category: ColorCategory,
+) -> tuple[list[str], list[Any]]:
+    """Shared reorder logic for sector and end-use ordering callbacks.
+
+    Parameters
+    ----------
+    get_color_manager_func : callable
+        Function to get the current color manager instance
+    current_order : list[str]
+        Current ordering from the dcc.Store
+    category : str
+        UI category prefix ("sector" or "end-use")
+    palette_items_attr : str
+        Palette attribute holding the items dict ("sectors" or "end_uses")
+    palette_order_attr : str
+        Palette attribute holding the order list ("sector_order" or "end_use_order")
+    color_category : ColorCategory
+        Color category enum value for palette.get()
+    """
+    triggered = ctx.triggered_id
+    color_manager = get_color_manager_func()
+
+    # Palette switch: reload order from the newly active palette
+    if triggered == "settings-palette-applied":
+        return _load_order_from_palette(
+            color_manager, palette_items_attr, palette_order_attr,
+            color_category, category,
+        )
+
+    if triggered == "reset-ordering-btn":
+        return _load_order_from_palette(
+            color_manager, palette_items_attr, palette_order_attr,
+            color_category, category, clear_saved=True,
+        )
+
+    if not current_order:
+        if color_manager:
+            palette = color_manager.get_palette()
+            current_order = list(getattr(palette, palette_items_attr).keys())
+        else:
+            return [], []
+
+    # Determine which button was clicked
+    # Display is reversed: display index i = internal index N-1-i
+    # "move-up" in display = move toward top of stack = move to higher internal index
+    # "move-down" in display = move toward base of stack = move to lower internal index
+    if isinstance(triggered, dict):
+        display_idx = triggered["index"]
+        n = len(current_order)
+        internal_idx = n - 1 - display_idx
+        if triggered["type"] == f"{category}-move-up" and internal_idx < n - 1:
+            current_order[internal_idx], current_order[internal_idx + 1] = (
+                current_order[internal_idx + 1],
+                current_order[internal_idx],
+            )
+        elif triggered["type"] == f"{category}-move-down" and internal_idx > 0:
+            current_order[internal_idx - 1], current_order[internal_idx] = (
+                current_order[internal_idx],
+                current_order[internal_idx - 1],
+            )
+
+    # Save to palette
+    colors: dict[str, str] | None = None
+    if color_manager:
+        palette = color_manager.get_palette()
+        setattr(palette, palette_order_attr, list(current_order))
+        colors = {k: palette.get(k, color_category) for k in current_order}
+
+    return current_order, _build_order_list_children(current_order, category, colors)
+
+
 def register_ordering_callbacks(
-    get_color_manager_func,  # type: ignore[no-untyped-def]
+    get_color_manager_func: Callable[[], Any],
 ) -> None:
     """Register callbacks for the Chart Ordering section.
 
@@ -1101,7 +1207,6 @@ def register_ordering_callbacks(
     get_color_manager_func : callable
         Function to get the current color manager instance
     """
-    from stride.ui.palette import ColorCategory
 
     @callback(
         Output("sector-order-store", "data"),
@@ -1109,6 +1214,7 @@ def register_ordering_callbacks(
         Input({"type": "sector-move-up", "index": ALL}, "n_clicks"),
         Input({"type": "sector-move-down", "index": ALL}, "n_clicks"),
         Input("reset-ordering-btn", "n_clicks"),
+        Input("settings-palette-applied", "data"),
         State("sector-order-store", "data"),
         prevent_initial_call=True,
     )
@@ -1116,57 +1222,14 @@ def register_ordering_callbacks(
         up_clicks: list[int | None],
         down_clicks: list[int | None],
         reset_clicks: int | None,
+        palette_applied: dict[str, Any],
         current_order: list[str],
-    ) -> tuple[list[str], list]:
+    ) -> tuple[list[str], list[Any]]:
         """Reorder sectors based on button clicks."""
-        triggered = ctx.triggered_id
-        color_manager = get_color_manager_func()
-
-        if triggered == "reset-ordering-btn":
-            if color_manager:
-                palette = color_manager.get_palette()
-                palette.sector_order = []
-                new_order = sorted(palette.sectors.keys())
-                colors = {k: palette.get(k, ColorCategory.SECTOR) for k in new_order}
-                return [], _build_order_list_children(new_order, "sector", colors)
-            return [], []
-
-        if not current_order:
-            # Initialize from palette sectors
-            if color_manager:
-                palette = color_manager.get_palette()
-                current_order = list(palette.sectors.keys())
-            else:
-                return [], []
-
-        # Determine which button was clicked
-        # Display is reversed: display index i = internal index N-1-i
-        # "move-up" in display = move toward top of stack = move to higher internal index
-        # "move-down" in display = move toward base of stack = move to lower internal index
-        if isinstance(triggered, dict):
-            display_idx = triggered["index"]
-            n = len(current_order)
-            internal_idx = n - 1 - display_idx
-            if triggered["type"] == "sector-move-up" and internal_idx < n - 1:
-                current_order[internal_idx], current_order[internal_idx + 1] = (
-                    current_order[internal_idx + 1],
-                    current_order[internal_idx],
-                )
-            elif triggered["type"] == "sector-move-down" and internal_idx > 0:
-                current_order[internal_idx - 1], current_order[internal_idx] = (
-                    current_order[internal_idx],
-                    current_order[internal_idx - 1],
-                )
-
-        # Save to palette
-        if color_manager:
-            palette = color_manager.get_palette()
-            palette.sector_order = list(current_order)
-            colors = {k: palette.get(k, ColorCategory.SECTOR) for k in current_order}
-        else:
-            colors = None
-
-        return current_order, _build_order_list_children(current_order, "sector", colors)
+        return _handle_reorder(
+            get_color_manager_func, current_order,
+            "sector", "sectors", "sector_order", ColorCategory.SECTOR,
+        )
 
     @callback(
         Output("end-use-order-store", "data"),
@@ -1174,6 +1237,7 @@ def register_ordering_callbacks(
         Input({"type": "end-use-move-up", "index": ALL}, "n_clicks"),
         Input({"type": "end-use-move-down", "index": ALL}, "n_clicks"),
         Input("reset-ordering-btn", "n_clicks"),
+        Input("settings-palette-applied", "data"),
         State("end-use-order-store", "data"),
         prevent_initial_call=True,
     )
@@ -1181,49 +1245,11 @@ def register_ordering_callbacks(
         up_clicks: list[int | None],
         down_clicks: list[int | None],
         reset_clicks: int | None,
+        palette_applied: dict[str, Any],
         current_order: list[str],
-    ) -> tuple[list[str], list]:
+    ) -> tuple[list[str], list[Any]]:
         """Reorder end uses based on button clicks."""
-        triggered = ctx.triggered_id
-        color_manager = get_color_manager_func()
-
-        if triggered == "reset-ordering-btn":
-            if color_manager:
-                palette = color_manager.get_palette()
-                palette.end_use_order = []
-                new_order = sorted(palette.end_uses.keys())
-                colors = {k: palette.get(k, ColorCategory.END_USE) for k in new_order}
-                return [], _build_order_list_children(new_order, "end-use", colors)
-            return [], []
-
-        if not current_order:
-            if color_manager:
-                palette = color_manager.get_palette()
-                current_order = list(palette.end_uses.keys())
-            else:
-                return [], []
-
-        if isinstance(triggered, dict):
-            display_idx = triggered["index"]
-            n = len(current_order)
-            internal_idx = n - 1 - display_idx
-            if triggered["type"] == "end-use-move-up" and internal_idx < n - 1:
-                current_order[internal_idx], current_order[internal_idx + 1] = (
-                    current_order[internal_idx + 1],
-                    current_order[internal_idx],
-                )
-            elif triggered["type"] == "end-use-move-down" and internal_idx > 0:
-                current_order[internal_idx - 1], current_order[internal_idx] = (
-                    current_order[internal_idx],
-                    current_order[internal_idx - 1],
-                )
-
-        # Save to palette
-        if color_manager:
-            palette = color_manager.get_palette()
-            palette.end_use_order = list(current_order)
-            colors = {k: palette.get(k, ColorCategory.END_USE) for k in current_order}
-        else:
-            colors = None
-
-        return current_order, _build_order_list_children(current_order, "end-use", colors)
+        return _handle_reorder(
+            get_color_manager_func, current_order,
+            "end-use", "end_uses", "end_use_order", ColorCategory.END_USE,
+        )
