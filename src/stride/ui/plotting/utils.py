@@ -12,6 +12,24 @@ if TYPE_CHECKING:
 TRANSPARENT = "rgba(0, 0, 0, 0)"
 DEFAULT_BAR_COLOR = "rgba(0,0,200,0.8)"
 
+
+def apply_custom_order(items: list[str], saved_order: list[str] | None) -> list[str]:
+    """Apply a custom order to a list of category names.
+
+    Items in saved_order come first (in that order), unknown items are appended
+    alphabetically. If saved_order is empty/None, returns items sorted alphabetically.
+    Comparison is case-insensitive to handle palette keys (lowercase) vs DataFrame values.
+    """
+    if not saved_order:
+        return sorted(items)
+    # Build a lowercase lookup from actual items
+    lower_to_actual = {s.lower(): s for s in items}
+    ordered = [lower_to_actual[s.lower()] for s in saved_order if s.lower() in lower_to_actual]
+    ordered_lower_set = {s.lower() for s in saved_order}
+    remaining = sorted(s for s in items if s.lower() not in ordered_lower_set)
+    return ordered + remaining
+
+
 # Plotly template names
 DEFAULT_PLOTLY_TEMPLATE = "plotly_white"
 DARK_PLOTLY_TEMPLATE = "plotly_dark"
@@ -452,6 +470,7 @@ def create_time_series_line_traces(
     color_generator: "ColorManager",
     breakdown_info: dict[str, Any],
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> list[go.Scatter]:
     """
     Create line traces for time series data.
@@ -494,7 +513,7 @@ def create_time_series_line_traces(
     else:
         # With breakdown - plot lines for each year and category combination
         breakdown_col = breakdown_info["breakdown_col"]
-        categories = sorted(df[breakdown_col].unique())
+        categories = apply_custom_order(list(df[breakdown_col].unique()), stack_order)
 
         for i, year in enumerate(years):
             year_df = df[df["year"] == year]
@@ -534,6 +553,7 @@ def create_time_series_area_traces(
     color_generator: "ColorManager",
     breakdown_info: dict[str, Any],
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> list[go.Scatter]:
     """
     Create area traces for time series data.
@@ -575,7 +595,7 @@ def create_time_series_area_traces(
     else:
         # With breakdown - stack by category within each year
         breakdown_col = breakdown_info["breakdown_col"]
-        categories = sorted(df[breakdown_col].unique())
+        categories = apply_custom_order(list(df[breakdown_col].unique()), stack_order)
 
         for i, year in enumerate(years):
             year_df = df[df["year"] == year]
@@ -657,6 +677,7 @@ def create_faceted_traces(
     group_by: str | None = None,
     value_col: str = "value",
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> list[tuple[go.Scatter, int, int]]:
     """
     Create traces for faceted time series plots.
@@ -685,7 +706,7 @@ def create_faceted_traces(
     traces_info = []
 
     if group_by:
-        categories = sorted(df[group_by].unique())
+        categories = apply_custom_order(list(df[group_by].unique()), stack_order)
 
         for i, scenario in enumerate(scenarios):
             row = (i // cols) + 1

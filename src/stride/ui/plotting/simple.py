@@ -113,6 +113,7 @@ def grouped_multi_bars(
     y_group: str = "end_use",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> go.Figure:
     """
     Create grouped and multi-level bar chart.
@@ -150,7 +151,16 @@ def grouped_multi_bars(
     # toggles that sector across all scenarios. Scenario indicators are visual only.
     added_y_legend = set()
     y_group_title_added = False
-    for y_value in sorted(df[y_group].unique()):
+    # Apply custom stack order if provided; fall back to alphabetical
+    if stack_order:
+        lower_to_actual = {s.lower(): s for s in df[y_group].unique()}
+        known = [lower_to_actual[s.lower()] for s in stack_order if s.lower() in lower_to_actual]
+        ordered_lower_set = {s.lower() for s in stack_order}
+        unknown = sorted(s for s in df[y_group].unique() if s.lower() not in ordered_lower_set)
+        y_values = known + unknown
+    else:
+        y_values = sorted(df[y_group].unique())
+    for y_value in y_values:
         # Preserve order from DataFrame (which comes from API in project config order)
         for x_value in list(df[x_group].unique()):
             df_subset = df[(df[x_group] == x_value) & (df[y_group] == y_value)]
@@ -244,6 +254,7 @@ def grouped_stacked_bars(
     show_scenario_indicators: bool = True,
     template: str = DEFAULT_PLOTLY_TEMPLATE,
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> go.Figure:
     """
     Create grouped and stacked bar chart.
@@ -283,7 +294,15 @@ def grouped_stacked_bars(
     years = sorted(df[year_col].unique())
     # Preserve order from DataFrame (which comes from API in project config order)
     groups = list(df[group_col].unique())
-    stack_categories = sorted(df[stack_col].unique())
+    # Apply custom stack order if provided; fall back to alphabetical
+    if stack_order:
+        lower_to_actual = {s.lower(): s for s in df[stack_col].unique()}
+        known = [lower_to_actual[s.lower()] for s in stack_order if s.lower() in lower_to_actual]
+        ordered_lower_set = {s.lower() for s in stack_order}
+        unknown = sorted(s for s in df[stack_col].unique() if s.lower() not in ordered_lower_set)
+        stack_categories = known + unknown
+    else:
+        stack_categories = sorted(df[stack_col].unique())
 
     # Get the maximum value to determine indicator bar height
     # For stacked bars, we need the sum of all stacks for each group/year combination
@@ -393,6 +412,7 @@ def time_series(
     chart_type: str = "Line",
     template: str = DEFAULT_PLOTLY_TEMPLATE,
     breakdown_type: ColorCategory | None = None,
+    stack_order: list[str] | None = None,
 ) -> go.Figure:
     """
     Plot time series data for multiple years of a single scenario.
@@ -438,11 +458,11 @@ def time_series(
         # Create traces based on chart type
         if chart_type == "Area":
             traces = create_time_series_area_traces(
-                df, color_generator, breakdown_info, breakdown_type
+                df, color_generator, breakdown_info, breakdown_type, stack_order
             )
         else:  # Line chart
             traces = create_time_series_line_traces(
-                df, color_generator, breakdown_info, breakdown_type
+                df, color_generator, breakdown_info, breakdown_type, stack_order
             )
 
         # Add all traces to figure

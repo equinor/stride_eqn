@@ -6,12 +6,147 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from stride.ui.color_manager import ColorManager
-from stride.ui.palette import ColorCategory
+from stride.ui.palette import ColorCategory, ColorPalette
 
 # Store for temporarily edited colors before saving.
 # Keys are composite ``"category_value:label"`` strings (e.g.
 # ``"scenarios:baseline"``).
 _temp_color_edits: dict[str, str] = {}
+
+
+def _create_ordering_section(
+    sectors: list[str],
+    end_uses: list[str],
+    palette: ColorPalette,
+) -> dbc.Row:
+    """Create the Chart Ordering section with move-up/down buttons.
+
+    Parameters
+    ----------
+    sectors : list[str]
+        Current sector labels (lowercase keys)
+    end_uses : list[str]
+        Current end-use labels (lowercase keys)
+    palette : ColorPalette
+        Current palette (to read saved order)
+
+    Returns
+    -------
+    dbc.Row
+        The ordering section layout
+    """
+
+    def _apply_order(items: list[str], saved_order: list[str]) -> list[str]:
+        """Return items reordered according to saved_order, unknowns appended."""
+        ordered = [s for s in saved_order if s in items]
+        remaining = [s for s in items if s not in saved_order]
+        return ordered + sorted(remaining)
+
+    def _build_list_group(
+        items: list[str], category: str, colors: dict[str, str] | None = None
+    ) -> dbc.ListGroup:
+        """Build a ListGroup with move-up/down buttons for each item.
+
+        Display is reversed: top of UI = top of stack, bottom of UI = base.
+        """
+        display_items = list(reversed(items))
+        children = []
+        for i, item in enumerate(display_items):
+            swatch = html.Span(
+                "",
+                style={
+                    "display": "inline-block",
+                    "width": "12px",
+                    "height": "12px",
+                    "borderRadius": "2px",
+                    "backgroundColor": colors.get(item, "#888") if colors else "#888",
+                    "marginRight": "8px",
+                },
+            )
+            children.append(
+                dbc.ListGroupItem(
+                    [
+                        dbc.Button(
+                            "▲",
+                            id={"type": f"{category}-move-up", "index": i},
+                            size="sm",
+                            outline=True,
+                            color="secondary",
+                            className="me-1 px-1 py-0",
+                            disabled=i == 0,
+                        ),
+                        dbc.Button(
+                            "▼",
+                            id={"type": f"{category}-move-down", "index": i},
+                            size="sm",
+                            outline=True,
+                            color="secondary",
+                            className="me-1 px-1 py-0",
+                            disabled=i == len(display_items) - 1,
+                        ),
+                        swatch,
+                        html.Span(item.replace("_", " ").capitalize()),
+                    ],
+                    className="d-flex align-items-center py-1 px-2",
+                )
+            )
+        return dbc.ListGroup(children, id=f"{category}-order-list", flush=True)
+
+    # Apply saved order
+    ordered_sectors = _apply_order(sectors, palette.sector_order)
+    ordered_end_uses = _apply_order(end_uses, palette.end_use_order)
+
+    # Get colors for swatches
+    sector_colors_map = {k: palette.get(k, ColorCategory.SECTOR) for k in ordered_sectors}
+    end_use_colors_map = {k: palette.get(k, ColorCategory.END_USE) for k in ordered_end_uses}
+
+    return dbc.Row(
+        [
+            dbc.Col(
+                [
+                    html.H4("Chart Ordering", className="mb-3"),
+                    html.Small(
+                        "Control the stacking order of sectors and end uses in charts. "
+                        "Bottom of the list = base of the stack. Saved with your palette.",
+                        className="text-muted d-block mb-3",
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.H6("Sector Stack Order", className="mb-2"),
+                                    _build_list_group(
+                                        ordered_sectors, "sector", sector_colors_map
+                                    ),
+                                ],
+                                md=6,
+                            ),
+                            dbc.Col(
+                                [
+                                    html.H6("End Use Stack Order", className="mb-2"),
+                                    _build_list_group(
+                                        ordered_end_uses, "end-use", end_use_colors_map
+                                    ),
+                                ],
+                                md=6,
+                            ),
+                        ]
+                    ),
+                    html.Div(
+                        dbc.Button(
+                            "Reset to Alphabetical",
+                            id="reset-ordering-btn",
+                            color="secondary",
+                            size="sm",
+                            outline=True,
+                            className="mt-2",
+                        ),
+                    ),
+                ]
+            )
+        ],
+        className="mb-4",
+    )
 
 
 def create_settings_layout(
@@ -172,6 +307,12 @@ def create_settings_layout(
                             )
                         ],
                         className="mb-4",
+                    ),
+                    # Chart Ordering Section
+                    _create_ordering_section(
+                        list(sector_colors.keys()),
+                        list(end_use_colors.keys()),
+                        palette,
                     ),
                     # Palette Selection Section
                     dbc.Row(

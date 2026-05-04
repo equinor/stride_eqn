@@ -86,6 +86,7 @@ class StridePlots:
         x_group: str = "scenario",
         y_group: str = "end_use",
         breakdown_type: ColorCategory | None = None,
+        stack_order: list[str] | None = None,
     ) -> go.Figure:
         """Create grouped and multi-level bar chart."""
         fig = simple.grouped_multi_bars(
@@ -95,6 +96,7 @@ class StridePlots:
             y_group,
             template=self._template,
             breakdown_type=breakdown_type,
+            stack_order=stack_order,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -108,6 +110,7 @@ class StridePlots:
         value_col: str = "demand",
         show_scenario_indicators: bool = True,
         breakdown_type: ColorCategory | None = None,
+        stack_order: list[str] | None = None,
     ) -> go.Figure:
         """Create grouped and stacked bar chart."""
         fig = simple.grouped_stacked_bars(
@@ -120,6 +123,7 @@ class StridePlots:
             show_scenario_indicators,
             template=self._template,
             breakdown_type=breakdown_type,
+            stack_order=stack_order,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -130,6 +134,7 @@ class StridePlots:
         group_by: str | None = None,
         chart_type: str = "Line",
         breakdown_type: ColorCategory | None = None,
+        stack_order: list[str] | None = None,
     ) -> go.Figure:
         """Plot time series data for multiple years of a single scenario."""
         fig = simple.time_series(
@@ -139,6 +144,7 @@ class StridePlots:
             chart_type,
             template=self._template,
             breakdown_type=breakdown_type,
+            stack_order=stack_order,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -162,6 +168,7 @@ class StridePlots:
         group_by: str | None = None,
         value_col: str = "value",
         breakdown_type: ColorCategory | None = None,
+        stack_order: list[str] | None = None,
     ) -> go.Figure:
         """Create faceted subplots for each scenario with shared legend."""
         fig = facets.faceted_time_series(
@@ -172,6 +179,7 @@ class StridePlots:
             value_col,
             template=self._template,
             breakdown_type=breakdown_type,
+            stack_order=stack_order,
         )
         fig.update_layout(template=self._template)
         return fig
@@ -182,8 +190,12 @@ class StridePlots:
         fig.update_layout(template=self._template)
         return fig
 
-    def seasonal_load_area(self, df: pd.DataFrame) -> go.Figure:
+    def seasonal_load_area(
+        self, df: pd.DataFrame, stack_order: list[str] | None = None
+    ) -> go.Figure:
         """Create faceted area charts for seasonal load patterns."""
-        fig = facets.seasonal_load_area(df, self._color_generator, template=self._template)
+        fig = facets.seasonal_load_area(
+            df, self._color_generator, template=self._template, stack_order=stack_order
+        )
         fig.update_layout(template=self._template)
         return fig

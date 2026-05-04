@@ -22,6 +22,16 @@ if TYPE_CHECKING:
     from stride.ui.plotting import StridePlots
 
 
+def _get_stack_order(plotter: "StridePlots", breakdown_value: str | None) -> list[str] | None:
+    """Get the custom stack order from the palette based on breakdown type."""
+    if not breakdown_value:
+        return None
+    palette = plotter.color_manager.get_palette()
+    if breakdown_value == "End Use":
+        return palette.end_use_order or None
+    return palette.sector_order or None
+
+
 def get_secondary_metric_label(metric: str) -> str:
     """
     Get the display label with units for a secondary metric.
@@ -129,7 +139,11 @@ def update_home_scenario_comparison(  # noqa: C901
         if breakdown_value:
             stack_col = "metric" if breakdown_value == "End Use" else str(breakdown_value)
             fig = plotter.grouped_stacked_bars(
-                df, stack_col=stack_col.lower(), value_col="value", breakdown_type=breakdown_type
+                df,
+                stack_col=stack_col.lower(),
+                value_col="value",
+                breakdown_type=breakdown_type,
+                stack_order=_get_stack_order(plotter, breakdown_value),
             )
         else:
             fig = plotter.grouped_single_bars(df, "scenario")
@@ -305,7 +319,11 @@ def update_home_sector_breakdown(  # noqa: C901
             stack_col = "metric" if breakdown_value == "End Use" else str(breakdown_value)
 
             fig = plotter.grouped_stacked_bars(
-                df, stack_col=stack_col.lower(), value_col="value", breakdown_type=breakdown_type
+                df,
+                stack_col=stack_col.lower(),
+                value_col="value",
+                breakdown_type=breakdown_type,
+                stack_order=_get_stack_order(plotter, breakdown_value),
             )
         else:
             fig = plotter.grouped_single_bars(df, "scenario")
@@ -567,7 +585,12 @@ def update_home_scenario_timeseries(  # noqa: C901
 
                     # Add primary data traces
                     if breakdown_value:
-                        categories = sorted(df[stack_col.lower()].unique())
+                        from stride.ui.plotting.utils import apply_custom_order
+
+                        categories = apply_custom_order(
+                            list(df[stack_col.lower()].unique()),
+                            _get_stack_order(plotter, breakdown_value),
+                        )
                         for idx, scenario in enumerate(selected_scenarios):
                             row = (idx // cols) + 1
                             col = (idx % cols) + 1
@@ -746,6 +769,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                         group_by=stack_col.lower() if breakdown_value else None,
                         value_col="value",
                         breakdown_type=breakdown_type,
+                        stack_order=_get_stack_order(plotter, breakdown_value),
                     )
                     warning_style = get_warning_annotation_style(plotter.get_template())
                     fig.add_annotation(
@@ -768,6 +792,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                     group_by=stack_col.lower() if breakdown_value else None,
                     value_col="value",
                     breakdown_type=breakdown_type,
+                    stack_order=_get_stack_order(plotter, breakdown_value),
                 )
                 error_style = get_error_annotation_style(plotter.get_template())
                 fig.add_annotation(
@@ -790,6 +815,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                     group_by=stack_col.lower() if breakdown_value else None,
                     value_col="value",
                     breakdown_type=breakdown_type,
+                    stack_order=_get_stack_order(plotter, breakdown_value),
                 )
                 error_msg = str(e)
                 if "does not exist" in error_msg.lower() or "not found" in error_msg.lower():
@@ -817,6 +843,7 @@ def update_home_scenario_timeseries(  # noqa: C901
                 group_by=stack_col.lower() if breakdown_value else None,
                 value_col="value",
                 breakdown_type=breakdown_type,
+                stack_order=_get_stack_order(plotter, breakdown_value),
             )
 
         return fig
@@ -1257,18 +1284,25 @@ def register_home_callbacks(  # noqa: C901
         Input("home-consumption-breakdown", "value"),
         Input("home-secondary-metric", "value"),
         Input("chart-refresh-trigger", "data"),
+        Input("sector-order-store", "data"),
+        Input("end-use-order-store", "data"),
     )
     def _update_home_scenario_comparison_chart(
         selected_scenarios: list[str],
         breakdown: ConsumptionBreakdown | Literal["None"],
         secondary_metric: SecondaryMetric | Literal["None"],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure:
         """Update the home scenario comparison chart."""
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
         if data_handler is None or plotter is None:
             return go.Figure()
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         result = update_home_scenario_comparison(
             data_handler, plotter, selected_scenarios, breakdown, secondary_metric
         )
@@ -1280,18 +1314,25 @@ def register_home_callbacks(  # noqa: C901
         Input("home-peak-breakdown", "value"),
         Input("home-peak-secondary-metric", "value"),
         Input("chart-refresh-trigger", "data"),
+        Input("sector-order-store", "data"),
+        Input("end-use-order-store", "data"),
     )
     def _update_home_sector_breakdown_chart(
         selected_scenarios: list[str],
         breakdown: ConsumptionBreakdown | Literal["None"],
         secondary_metric: SecondaryMetric | Literal["None"],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure:
         """Update the home sector breakdown chart."""
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
         if data_handler is None or plotter is None:
             return go.Figure()
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         result = update_home_sector_breakdown(
             data_handler, plotter, selected_scenarios, breakdown, secondary_metric
         )
@@ -1321,6 +1362,8 @@ def register_home_callbacks(  # noqa: C901
         Input("home-timeseries-breakdown", "value"),
         Input("home-timeseries-secondary-metric", "value"),
         Input("chart-refresh-trigger", "data"),
+        Input("sector-order-store", "data"),
+        Input("end-use-order-store", "data"),
     )
     def _update_home_scenario_timeseries_chart(
         selected_scenarios: list[str],
@@ -1328,12 +1371,17 @@ def register_home_callbacks(  # noqa: C901
         breakdown: ConsumptionBreakdown | Literal["None"],
         secondary_metric: SecondaryMetric | Literal["None"],
         refresh_trigger: int,
+        sector_order: list[str],
+        end_use_order: list[str],
     ) -> go.Figure:
         """Update the home scenario timeseries chart."""
         data_handler = get_data_handler_func()
         plotter = get_plotter_func()
         if data_handler is None or plotter is None:
             return go.Figure()
+        palette = plotter.color_manager.get_palette()
+        palette.sector_order = sector_order or []
+        palette.end_use_order = end_use_order or []
         result = update_home_scenario_timeseries(
             data_handler, plotter, selected_scenarios, chart_type, breakdown, secondary_metric
         )
