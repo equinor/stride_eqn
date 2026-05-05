@@ -257,7 +257,8 @@ def read_dataset_version(dataset_dir: Path) -> str | None:
     if not version_file.exists():
         return None
     data = json.loads(version_file.read_text())
-    return data.get("version")
+    result: str | None = data.get("version")
+    return result
 
 
 def _download_archive_with_gh(repo: str, version: str, archive_path: Path) -> None:
@@ -534,8 +535,9 @@ def download_dataset_from_repo(
         # Extract test dataset if specified
         if test_subdirectory:
             test_source_path = _find_source_in_archive(extract_path, test_subdirectory)
-            _move_to_destination(test_source_path, data_dir, test_subdirectory)
+            test_result = _move_to_destination(test_source_path, data_dir, test_subdirectory)
             logger.info("Also extracted test dataset: {}", test_subdirectory)
+            _write_version_file(test_result, version)
 
         # Record the dataset version for reproducibility
         _write_version_file(result, version)

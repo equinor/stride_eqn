@@ -1,4 +1,4 @@
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
 from stride.project import Project
 from stride.models import (
@@ -6,7 +6,10 @@ from stride.models import (
     Scenario,
 )
 
-__version__ = version("stride-load-forecast")
+try:
+    __version__ = version("stride-load-forecast")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 __all__ = (
     "Project",
