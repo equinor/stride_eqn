@@ -1,5 +1,6 @@
 """Download stride datasets from remote repositories."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import tempfile
 import urllib.request
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from loguru import logger
@@ -233,6 +235,30 @@ def get_default_data_directory() -> Path:
     if env_dir:
         return Path(env_dir)
     return Path.home() / ".stride" / "data"
+
+
+def _write_version_file(dataset_dir: Path, version: str) -> None:
+    """Write a version.json file into the dataset directory for reproducibility."""
+    version_info = {
+        "version": version,
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    version_file = dataset_dir / "version.json"
+    version_file.write_text(json.dumps(version_info, indent=2))
+    logger.info("Recorded dataset version {} in {}", version, version_file)
+
+
+def read_dataset_version(dataset_dir: Path) -> str | None:
+    """Read the dataset version from version.json if it exists.
+
+    Returns the version string or None if not found.
+    """
+    version_file = dataset_dir / "version.json"
+    if not version_file.exists():
+        return None
+    data = json.loads(version_file.read_text())
+    result: str | None = data.get("version")
+    return result
 
 
 def _download_archive_with_gh(repo: str, version: str, archive_path: Path) -> None:
@@ -509,7 +535,11 @@ def download_dataset_from_repo(
         # Extract test dataset if specified
         if test_subdirectory:
             test_source_path = _find_source_in_archive(extract_path, test_subdirectory)
-            _move_to_destination(test_source_path, data_dir, test_subdirectory)
+            test_result = _move_to_destination(test_source_path, data_dir, test_subdirectory)
             logger.info("Also extracted test dataset: {}", test_subdirectory)
+            _write_version_file(test_result, version)
+
+        # Record the dataset version for reproducibility
+        _write_version_file(result, version)
 
         return result
