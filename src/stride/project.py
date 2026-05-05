@@ -108,7 +108,7 @@ class Project:
         dataset_dir = cls._get_dataset_dir(dataset, data_dir)
         config.country = validate_country(config.country, dataset_dir)
 
-        project_path = base_dir / config.project_id
+        project_path = (base_dir / config.project_id).resolve()
         check_overwrite(project_path, overwrite)
         project_path.mkdir()
 
@@ -120,7 +120,7 @@ class Project:
 
         project = cls(config, project_path)
         project.con.sql("CREATE SCHEMA stride")
-        project._clear_scenario_dataset_paths()
+        project._archive_and_rewrite_paths_to_relative()
         for scenario in config.scenarios:
             # Skip computing mapped datasets for tables that will be replaced with
             # baseline views (avoids expensive redundant computation)
@@ -193,6 +193,82 @@ class Project:
         for scenario in self._config.scenarios:
             for dataset in self.list_data_tables():
                 setattr(scenario, dataset, None)
+
+    def _archive_and_rewrite_paths_to_relative(self) -> None:
+        """Copy input files into the project and rewrite config paths.
+
+        Replaces _clear_scenario_dataset_paths() to enable reproducibility.
+        Copies all referenced external files into project_inputs/ and rewrites
+        the paths in self._config to point at the copies.
+
+        Scenario dataset paths are set to relative paths (they've already been
+        consumed by _register_scenario_datasets). Custom demand and calculated
+        table override paths are set to absolute paths of the copies (they're
+        still needed by downstream processing). The persist() method handles
+        final conversion to relative paths.
+        """
+        inputs_dir = self._path / "project_inputs"
+
+        # Archive scenario dataset override files — these are already consumed,
+        # so we store relative paths directly.
+        scenarios_dir = inputs_dir / "scenarios"
+        for scenario in self._config.scenarios:
+            for field_name in self.list_data_tables():
+                path = getattr(scenario, field_name)
+                if path is not None:
+                    dest_dir = scenarios_dir / scenario.name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_dir / Path(path).name
+                    shutil.copy2(path, dest_file)
+                    setattr(scenario, field_name, dest_file.relative_to(self._path))
+
+            # Archive custom_demand_overrides (dict[str, Path])
+            # These are read during inject_custom_demand_components, keep absolute.
+            if scenario.custom_demand_overrides:
+                new_overrides: dict[str, Path] = {}
+                for component_name, override_path in scenario.custom_demand_overrides.items():
+                    dest_dir = scenarios_dir / scenario.name
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_dir / Path(override_path).name
+                    shutil.copy2(override_path, dest_file)
+                    new_overrides[component_name] = dest_file
+                scenario.custom_demand_overrides = new_overrides
+
+        # Archive custom demand component files
+        # Use absolute paths to the copies so downstream inject_custom_demand_components
+        # can still read them. Paths are converted to relative during persist().
+        custom_demand_dir = inputs_dir / "custom_demand"
+        for component in self._config.custom_demand_components:
+            # data_file
+            if component.data_file is not None:
+                custom_demand_dir.mkdir(parents=True, exist_ok=True)
+                dest_file = custom_demand_dir / Path(component.data_file).name
+                shutil.copy2(component.data_file, dest_file)
+                component.data_file = dest_file
+
+            # load_profile (only if it's a file path, not a keyword)
+            if component.load_profile not in ("flat",) and not component.load_profile.startswith(
+                ("sector:", "enduse:")
+            ):
+                profile_path = Path(component.load_profile)
+                if profile_path.exists():
+                    custom_demand_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = custom_demand_dir / profile_path.name
+                    shutil.copy2(profile_path, dest_file)
+                    component.load_profile = str(dest_file)
+
+        # Archive calculated table override files
+        # Use absolute paths to the copies so downstream code can still read them.
+        # After _apply_calculated_table_overrides() runs, the paths get converted
+        # to relative in the final persist step.
+        if self._config.calculated_table_overrides:
+            overrides_dir = inputs_dir / "table_overrides"
+            for table_override in self._config.calculated_table_overrides:
+                if table_override.filename is not None:
+                    overrides_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = overrides_dir / Path(table_override.filename).name
+                    shutil.copy2(table_override.filename, dest_file)
+                    table_override.filename = dest_file
 
     def _create_views_for_unchanged_tables(
         self, unchanged_tables_by_scenario: dict[str, list[str]]
@@ -355,6 +431,7 @@ class Project:
             self._config.color_palette = self._palette.to_dict()
             config_path = self._path / "project.json5"
             config_path.write_text(self._config.model_dump_json(indent=2))
+            self._prepend_provenance_comment(config_path)
 
     def override_calculated_tables(self, overrides: list[CalculatedTableOverride]) -> None:
         """Override one or more calculated tables."""
@@ -380,8 +457,18 @@ class Project:
             self._check_schemas(override_full_name, existing_full_name)
             override_file = self._path / DBT_DIR / "models" / f"{table.table_name}_override.sql"
             override_file.write_text(f"SELECT * FROM {override_full_name}")
+            # Preserve the filename as a relative path for reproducibility
+            archived_filename: Path | None = None
+            try:
+                archived_filename = Path(table.filename).relative_to(self._path)
+            except ValueError:
+                pass
             self._config.calculated_table_overrides.append(
-                CalculatedTableOverride(scenario=table.scenario, table_name=table.table_name)
+                CalculatedTableOverride(
+                    scenario=table.scenario,
+                    table_name=table.table_name,
+                    filename=archived_filename,
+                )
             )
             logger.info("Added override table {} to scenario {}", table.table_name, table.scenario)
 
@@ -523,7 +610,81 @@ class Project:
 
     def persist(self) -> None:
         """Persist the project config to the project directory."""
-        dump_json_file(self._config.model_dump(mode="json"), self._path / CONFIG_FILE, indent=2)
+        config_path = self._path / CONFIG_FILE
+        # Convert any absolute paths within the project to relative for portability
+        data = self._config.model_dump(mode="json")
+        self._relativize_paths_for_serialization(data)
+        dump_json_file(data, config_path, indent=2)
+        self._prepend_provenance_comment(config_path)
+
+    def _relativize_paths_for_serialization(self, data: dict) -> None:
+        """Convert absolute paths within project_inputs/ to relative in serialized data."""
+        project_path_str = str(self._path)
+
+        # Custom demand components
+        for component in data.get("custom_demand_components", []):
+            if component.get("data_file") and str(component["data_file"]).startswith(
+                project_path_str
+            ):
+                component["data_file"] = str(
+                    Path(component["data_file"]).relative_to(self._path)
+                )
+            if (
+                component.get("load_profile")
+                and str(component["load_profile"]).startswith(project_path_str)
+            ):
+                component["load_profile"] = str(
+                    Path(component["load_profile"]).relative_to(self._path)
+                )
+
+        # Scenario custom_demand_overrides
+        for scenario in data.get("scenarios", []):
+            overrides = scenario.get("custom_demand_overrides", {})
+            if overrides:
+                for key, value in list(overrides.items()):
+                    if value and str(value).startswith(project_path_str):
+                        overrides[key] = str(Path(value).relative_to(self._path))
+
+        # Calculated table overrides
+        for override in data.get("calculated_table_overrides", []):
+            if override.get("filename") and str(override["filename"]).startswith(
+                project_path_str
+            ):
+                override["filename"] = str(
+                    Path(override["filename"]).relative_to(self._path)
+                )
+
+    def _prepend_provenance_comment(self, config_path: Path) -> None:
+        """Prepend a provenance comment header to the config file."""
+        import platform
+        from datetime import datetime, timezone
+
+        import stride
+
+        dataset_dir = self._path.parent  # best-effort: may not be correct in all cases
+        stride_data_version = "unknown"
+        # Try to find the dataset version from the data directory used
+        for candidate in [
+            get_default_data_directory() / "global",
+            get_default_data_directory() / "global-test",
+        ]:
+            if candidate.exists():
+                from stride.dataset_download import read_dataset_version
+
+                ver = read_dataset_version(candidate)
+                if ver is not None:
+                    stride_data_version = ver
+                    break
+
+        comment = (
+            f"// Generated by stride {stride.__version__}"
+            f" | stride-data {stride_data_version}"
+            f" | Python {platform.python_version()}"
+            f" | {platform.system()}-{platform.machine()}"
+            f" | {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}\n"
+        )
+        content = config_path.read_text()
+        config_path.write_text(comment + content)
 
     def compute_energy_projection(self, use_table_overrides: bool = True) -> None:
         """Compute the energy projection dataset for all scenarios.
