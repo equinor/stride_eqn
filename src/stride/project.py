@@ -208,9 +208,12 @@ class Project:
         final conversion to relative paths.
         """
         inputs_dir = self._path / "project_inputs"
+        self._archive_scenario_datasets(inputs_dir)
+        self._archive_custom_demand_files(inputs_dir)
+        self._archive_calculated_table_overrides(inputs_dir)
 
-        # Archive scenario dataset override files — these are already consumed,
-        # so we store relative paths directly.
+    def _archive_scenario_datasets(self, inputs_dir: Path) -> None:
+        """Archive scenario dataset override files with relative paths."""
         scenarios_dir = inputs_dir / "scenarios"
         for scenario in self._config.scenarios:
             for field_name in self.list_data_tables():
@@ -234,19 +237,16 @@ class Project:
                     new_overrides[component_name] = dest_file
                 scenario.custom_demand_overrides = new_overrides
 
-        # Archive custom demand component files
-        # Use absolute paths to the copies so downstream inject_custom_demand_components
-        # can still read them. Paths are converted to relative during persist().
+    def _archive_custom_demand_files(self, inputs_dir: Path) -> None:
+        """Archive custom demand component files with absolute paths."""
         custom_demand_dir = inputs_dir / "custom_demand"
         for component in self._config.custom_demand_components:
-            # data_file
             if component.data_file is not None:
                 custom_demand_dir.mkdir(parents=True, exist_ok=True)
                 dest_file = custom_demand_dir / Path(component.data_file).name
                 shutil.copy2(component.data_file, dest_file)
                 component.data_file = dest_file
 
-            # load_profile (only if it's a file path, not a keyword)
             if component.load_profile not in ("flat",) and not component.load_profile.startswith(
                 ("sector:", "enduse:")
             ):
@@ -257,10 +257,8 @@ class Project:
                     shutil.copy2(profile_path, dest_file)
                     component.load_profile = str(dest_file)
 
-        # Archive calculated table override files
-        # Use absolute paths to the copies so downstream code can still read them.
-        # After _apply_calculated_table_overrides() runs, the paths get converted
-        # to relative in the final persist step.
+    def _archive_calculated_table_overrides(self, inputs_dir: Path) -> None:
+        """Archive calculated table override files with absolute paths."""
         if self._config.calculated_table_overrides:
             overrides_dir = inputs_dir / "table_overrides"
             for table_override in self._config.calculated_table_overrides:
@@ -661,7 +659,6 @@ class Project:
 
         import stride
 
-        dataset_dir = self._path.parent  # best-effort: may not be correct in all cases
         stride_data_version = "unknown"
         # Try to find the dataset version from the data directory used
         for candidate in [
