@@ -1,3 +1,82 @@
+{% if var('use_calibration', false) %}
+-- Use calibrated shapes for base sectors (already scaled to annual totals)
+SELECT
+    timestamp,
+    model_year,
+    geography,
+    sector,
+    'other' AS metric,
+    value
+FROM {{ ref('calibrated_load_shapes') }}
+WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
+
+{% if var('use_ev_projection', false) %}
+UNION ALL
+
+-- EV charging on top of calibrated Transportation (existing EV logic)
+-- When calibration is enabled, the base Transportation is already calibrated above.
+-- EV charging is an additional component that replaces the Road subsector portion.
+-- We need to compute the EV annual energy and distribute it using the Transportation
+-- load shape from calibrated_load_shapes.
+WITH ev_annual_energy AS (
+    SELECT
+        geography,
+        model_year,
+        sector,
+        subsector,
+        value * 277.777777778 AS stride_annual_total
+    FROM {{ table_ref('ev_annual_energy_tj') }}
+),
+
+calibrated_transport_hourly AS (
+    SELECT
+        timestamp,
+        model_year,
+        geography,
+        value AS hourly_value
+    FROM {{ ref('calibrated_load_shapes') }}
+    WHERE sector = 'Transportation'
+),
+
+calibrated_transport_annual AS (
+    SELECT
+        model_year,
+        geography,
+        SUM(hourly_value) AS annual_total
+    FROM calibrated_transport_hourly
+    GROUP BY model_year, geography
+),
+
+ev_scaling AS (
+    SELECT
+        ct.model_year,
+        ct.geography,
+        CASE
+            WHEN ct.annual_total > 0
+            THEN SUM(ev.stride_annual_total) / ct.annual_total
+            ELSE 0
+        END AS ev_scale
+    FROM calibrated_transport_annual ct
+    JOIN ev_annual_energy ev
+        ON ct.geography = ev.geography
+        AND ct.model_year = ev.model_year
+    GROUP BY ct.model_year, ct.geography, ct.annual_total
+)
+
+SELECT
+    cth.timestamp,
+    cth.model_year,
+    cth.geography,
+    'Transportation' AS sector,
+    'ev_charging' AS metric,
+    cth.hourly_value * es.ev_scale AS value
+FROM calibrated_transport_hourly cth
+JOIN ev_scaling es
+    ON cth.model_year = es.model_year
+    AND cth.geography = es.geography
+{% endif %}
+
+{% else %}
 WITH load_shapes_filtered AS (
     -- Get temperature-adjusted load shapes for commercial, industrial, and transportation sectors
     SELECT
@@ -144,3 +223,4 @@ JOIN scaling_factors sf
 WHERE sf.energy_source = 'ev'
   AND ls.sector = 'Transportation'
 GROUP BY ls.timestamp, ls.model_year, ls.geography, ls.sector, sf.scaling_factor
+{% endif %}

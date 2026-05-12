@@ -1,4 +1,5 @@
 import importlib.resources
+import calendar
 import os
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import duckdb
+import pandas as pd
 from dsgrid.dimension.base_models import DatasetDimensionRequirements, DimensionType
 from dsgrid.config.project_config import ProjectConfig as DSGProjectConfig
 from chronify.exceptions import InvalidOperation, InvalidParameter
@@ -26,6 +28,7 @@ from stride.dsgrid_integration import (
 )
 from stride.io import create_table_from_file, export_table
 from stride.models import (
+    CalibrationConfig,
     CalculatedTableOverride,
     CustomDemandComponent,
     ProjectConfig,
@@ -134,6 +137,12 @@ class Project:
         project.persist()
         project.copy_dbt_template()
         project._create_views_for_unchanged_tables(unchanged_tables_by_scenario)
+
+        # Load calibration load shape (if configured) before dbt runs
+        if config.calibration.load_shape is not None:
+            for scenario in config.scenarios:
+                project._load_calibration_load_shape(scenario)
+
         project.compute_energy_projection(use_table_overrides=False)
         project._apply_calculated_table_overrides()
 
@@ -628,7 +637,13 @@ class Project:
     def list_calculated_tables(self) -> list[str]:
         """List all calculated tables stored in the database. They apply to each scenario."""
         dbt_dir = self._path / DBT_DIR / "models"
-        return sorted([x.stem for x in dbt_dir.glob("*.sql")])
+        all_models = sorted([x.stem for x in dbt_dir.glob("*.sql")])
+        # Filter to models that are actually materialized (some are conditionally enabled)
+        if self._config.scenarios:
+            schema = self._config.scenarios[0].name
+            existing = set(self.list_tables(schema=schema))
+            return [m for m in all_models if m in existing]
+        return all_models
 
     @staticmethod
     def list_data_tables() -> list[str]:
@@ -749,6 +764,7 @@ class Project:
             override_strings = [f'"{x}_override": "{x}_override"' for x in overrides]
             override_str = ", " + ", ".join(override_strings) if override_strings else ""
             use_ev_str = "true" if scenario.use_ev_projection else "false"
+            use_calibration_str = "true" if self._config.calibration.load_shape is not None else "false"
             vars_string = (
                 f'{{"scenario": "{scenario.name}", '
                 f'"country": "{self._config.country}", '
@@ -758,7 +774,8 @@ class Project:
                 f'"cooling_threshold": {self._config.model_parameters.cooling_threshold}, '
                 f'"enable_shoulder_month_smoothing": {str(self._config.model_parameters.enable_shoulder_month_smoothing).lower()}, '
                 f'"shoulder_month_smoothing_factor": {self._config.model_parameters.shoulder_month_smoothing_factor}, '
-                f'"use_ev_projection": {use_ev_str}'
+                f'"use_ev_projection": {use_ev_str}, '
+                f'"use_calibration": {use_calibration_str}'
                 f"{override_str}}}"
             )
             # TODO: May want to run `build` instead of `run` if we add dbt tests.
@@ -1003,6 +1020,146 @@ class Project:
                     )
 
         return total_injected
+
+    # ---- Calibration engine ----
+
+    # Known source names that map to stride-data historical demand tables
+    KNOWN_CALIBRATION_SOURCES = {"entsoe", "smard", "ember"}
+    HISTORICAL_DEMAND_SOURCES = ["entsoe", "smard", "ember"]
+
+    def _load_calibration_load_shape(self, scenario: Scenario) -> None:
+        """Load the calibration load shape into a DuckDB table.
+
+        If calibration is disabled (load_shape is None), does nothing.
+        For known source names, resolves from stride-data.
+        For file paths, reads the CSV and validates.
+        """
+        config = self._config.calibration
+        if config.load_shape is None:
+            return
+
+        shape_str = str(config.load_shape)
+
+        if shape_str in self.KNOWN_CALIBRATION_SOURCES:
+            df_or_none = self._resolve_historical_demand(source=shape_str)
+            if df_or_none is None:
+                return  # fallback to uncalibrated — warning already logged
+            df = df_or_none
+        else:
+            path = Path(shape_str)
+            df = pd.read_csv(path, parse_dates=["timestamp"])
+
+        # Validate required columns
+        required_cols = {"timestamp", "total_load_mwh"}
+        missing = required_cols - set(df.columns)
+        if missing:
+            raise InvalidParameter(
+                f"Calibration CSV is missing required columns: {missing}. "
+                f"Found: {list(df.columns)}"
+            )
+
+        # Validate row count against weather_year (leap year aware)
+        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
+        if len(df) != expected_rows:
+            raise InvalidParameter(
+                f"Calibration CSV must have {expected_rows} rows for weather_year "
+                f"{self._config.weather_year} "
+                f"({'leap' if calendar.isleap(self._config.weather_year) else 'non-leap'}), "
+                f"got {len(df)}"
+            )
+
+        # Check year consistency — raise error on mismatch (user-provided CSV only;
+        # entsoe path filters by weather_year automatically)
+        if shape_str not in self.KNOWN_CALIBRATION_SOURCES:
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != self._config.weather_year:
+                raise InvalidParameter(
+                    f"Calibration CSV year ({csv_year}) != weather_year "
+                    f"({self._config.weather_year}). "
+                    f"The calibration SQL joins on timestamp, so mismatched years would "
+                    f"produce zero matches and silently disable calibration. "
+                    f"Use a CSV matching weather_year={self._config.weather_year}."
+                )
+
+        # Load into DuckDB as a source table accessible by dbt
+        table_name = f"{scenario.name}__calibration_load_shape__1_0_0"
+        self._con.sql("CREATE SCHEMA IF NOT EXISTS dsgrid_data")
+        self._con.sql(f"""
+            CREATE OR REPLACE TABLE dsgrid_data.{table_name} AS
+            SELECT
+                timestamp,
+                total_load_mwh
+            FROM df
+            ORDER BY timestamp
+        """)
+        logger.info(
+            "Loaded calibration load shape ({} rows) for scenario '{}'",
+            len(df),
+            scenario.name,
+        )
+
+    def _resolve_historical_demand(self, source: str) -> pd.DataFrame | None:
+        """Resolve historical demand load shape from a stride-data source table.
+
+        Returns DataFrame if data found, None to fall back to uncalibrated pipeline.
+        """
+        dataset_dir = self._get_dataset_dir("global")
+        table_dir = dataset_dir / "profile_data" / f"historical_demand_{source}"
+        parquet_path = table_dir / "load_data.parquet"
+        country = self._config.country
+        year = self._config.weather_year
+
+        if not parquet_path.exists():
+            raise InvalidParameter(
+                f"Historical demand source '{source}' not found at {table_dir}. "
+                f"Available sources: {self._list_available_sources(dataset_dir)}"
+            )
+
+        # Filter to country + weather_year
+        df = pd.read_parquet(parquet_path)
+        df = df[
+            (df["geography"] == country)
+            & (df["timestamp"].dt.year == year)
+        ]
+
+        if len(df) > 0:
+            return df
+
+        # Data not available — find alternatives and fall back
+        alternatives = self._find_alternative_sources(dataset_dir, country, year, exclude=source)
+
+        msg = (
+            f"No data in '{source}' for {country} / weather_year {year}. "
+            f"Falling back to original Castillo et al. / IMAGE load shapes (uncalibrated)."
+        )
+        if alternatives:
+            msg += f"\n  Hint: the following sources DO have {country}/{year}: {alternatives}"
+
+        logger.warning(msg)
+        return None
+
+    def _find_alternative_sources(
+        self, dataset_dir: Path, country: str, year: int, exclude: str
+    ) -> list[str]:
+        """Scan other historical demand tables for (country, year) availability."""
+        alternatives = []
+        for source_name in self.HISTORICAL_DEMAND_SOURCES:
+            if source_name == exclude:
+                continue
+            path = dataset_dir / "profile_data" / f"historical_demand_{source_name}" / "load_data.parquet"
+            if not path.exists():
+                continue
+            df = pd.read_parquet(path, columns=["geography", "timestamp"])
+            if ((df["geography"] == country) & (df["timestamp"].dt.year == year)).any():
+                alternatives.append(source_name)
+        return alternatives
+
+    def _list_available_sources(self, dataset_dir: Path) -> list[str]:
+        """List all historical demand source tables present in stride-data."""
+        return [
+            s for s in self.HISTORICAL_DEMAND_SOURCES
+            if (dataset_dir / "profile_data" / f"historical_demand_{s}" / "load_data.parquet").exists()
+        ]
 
     def _build_profile_sql(
         self,
