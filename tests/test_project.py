@@ -20,6 +20,7 @@ from stride.project import (
     list_valid_model_years,
     list_valid_weather_years,
     validate_country,
+    validate_weather_year,
 )
 from stride.cli.stride import cli
 
@@ -502,6 +503,47 @@ def test_validate_country_invalid() -> None:
     dataset_dir = get_default_data_directory() / "global-test"
     with pytest.raises(InvalidParameter, match="Country 'InvalidCountry' is not available"):
         validate_country("InvalidCountry", dataset_dir)
+
+
+def test_validate_weather_year_valid() -> None:
+    """Test that validate_weather_year succeeds for a valid weather year."""
+    dataset_dir = get_default_data_directory() / "global-test"
+    valid_years = list_valid_weather_years(dataset_dir)
+    validate_weather_year(int(valid_years[0]), dataset_dir)
+
+
+def test_validate_weather_year_invalid() -> None:
+    """Test that validate_weather_year raises an error for an invalid weather year."""
+    dataset_dir = get_default_data_directory() / "global-test"
+    with pytest.raises(InvalidParameter, match="Weather year 1900 is not available"):
+        validate_weather_year(1900, dataset_dir)
+
+
+def test_create_project_invalid_weather_year(
+    copy_project_input_data: tuple[Path, Path, Path],
+) -> None:
+    """Test that project creation fails early with an invalid weather_year."""
+    tmp_path, _, project_config_file = copy_project_input_data
+    config = load_json_file(project_config_file)
+    config["weather_year"] = 1900
+    dump_json_file(config, project_config_file)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "projects",
+            "create",
+            str(project_config_file),
+            "-d",
+            str(tmp_path),
+            "--dataset",
+            "global-test",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "1900" in result.output
+    assert "not available" in result.output
 
 
 def test_create_project_invalid_country(copy_project_input_data: tuple[Path, Path, Path]) -> None:

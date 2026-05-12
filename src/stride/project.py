@@ -107,6 +107,7 @@ class Project:
         config = ProjectConfig.from_file(config_file)
         dataset_dir = cls._get_dataset_dir(dataset, data_dir)
         config.country = validate_country(config.country, dataset_dir)
+        validate_weather_year(config.weather_year, dataset_dir)
 
         project_path = (base_dir / config.project_id).resolve()
         check_overwrite(project_path, overwrite)
@@ -1683,6 +1684,33 @@ def generate_project_template(country: str, project_id: str) -> str:
 }}
 """
     return template
+
+
+def validate_weather_year(weather_year: int, dataset_dir: Path) -> None:
+    """Validate that a weather year is available in the dataset.
+
+    Parameters
+    ----------
+    weather_year
+        The weather year to validate.
+    dataset_dir
+        Path to the dataset directory.
+
+    Raises
+    ------
+    InvalidParameter
+        If the weather year is not found in the dataset.
+    """
+    valid_years = list_valid_weather_years(dataset_dir)
+    if str(weather_year) not in valid_years:
+        year_ints = sorted(int(y) for y in valid_years)
+        msg = (
+            f"Weather year {weather_year} is not available in the dataset. "
+            f"Valid range: {year_ints[0]}–{year_ints[-1]} "
+            f"({len(year_ints)} years). "
+            f"Use 'stride datasets list-weather-years' to see all available years."
+        )
+        raise InvalidParameter(msg)
 
 
 def validate_country(country: str, dataset_dir: Path) -> str:
