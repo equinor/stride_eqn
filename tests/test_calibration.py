@@ -217,19 +217,21 @@ def test_create_project_with_calibration(tmp_path: Path) -> None:
         row = project.con.sql("SELECT COUNT(*) FROM energy_projection").fetchone()
         assert row is not None and row[0] > 0
 
-        # Verify all values use 'other' metric (calibration collapses enduses)
+        # Verify all values use enduse-level metrics (calibration now preserves enduses)
         metrics = project.con.sql(
             "SELECT DISTINCT metric FROM baseline.energy_projection"
         ).fetchall()
         metric_set = {m[0] for m in metrics}
-        assert "other" in metric_set
+        assert metric_set != {"other"}, (
+            "Expected enduse-level metrics (heating/cooling/other) but got only 'other'. "
+            "Calibration should preserve enduse decomposition."
+        )
 
         # Verify annual totals are preserved (key calibration guarantee)
         # Sum calibrated output per sector per model_year
         calibrated_annual = project.con.sql("""
             SELECT sector, model_year, SUM(value) as annual_total
             FROM baseline.energy_projection
-            WHERE metric = 'other'
             GROUP BY sector, model_year
         """).fetchdf()
 

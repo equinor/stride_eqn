@@ -1,5 +1,5 @@
 {% if var('use_calibration', false) %}
--- Use calibrated shapes for base sectors (already scaled to annual totals)
+-- Use calibrated shapes for base sectors (already scaled to annual totals, with enduse decomposition)
 -- When EV projection is enabled, EV charging is added as a separate metric.
 {% if var('use_ev_projection', false) %}
 WITH ev_annual_energy AS (
@@ -13,13 +13,15 @@ WITH ev_annual_energy AS (
 ),
 
 calibrated_transport_hourly AS (
+    -- Sum across enduses to get sector-level hourly for EV scaling
     SELECT
         timestamp,
         model_year,
         geography,
-        value AS hourly_value
+        SUM(value) AS hourly_value
     FROM {{ ref('calibrated_load_shapes') }}
     WHERE sector = 'Transportation'
+    GROUP BY timestamp, model_year, geography
 ),
 
 calibrated_transport_annual AS (
@@ -52,7 +54,7 @@ SELECT
     model_year,
     geography,
     sector,
-    'other' AS metric,
+    enduse AS metric,
     value
 FROM {{ ref('calibrated_load_shapes') }}
 WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
@@ -78,7 +80,7 @@ SELECT
     model_year,
     geography,
     sector,
-    'other' AS metric,
+    enduse AS metric,
     value
 FROM {{ ref('calibrated_load_shapes') }}
 WHERE sector IN ('Commercial', 'Industrial', 'Transportation')

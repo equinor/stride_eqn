@@ -1,11 +1,11 @@
 {% if var('use_calibration', false) %}
--- Use calibrated shapes (already scaled to annual totals)
+-- Use calibrated shapes (already scaled to annual totals, with enduse decomposition)
 SELECT
     timestamp,
     model_year,
     geography,
     sector,
-    'other' AS metric,
+    enduse AS metric,
     value
 FROM {{ ref('calibrated_load_shapes') }}
 WHERE sector = 'Residential'
