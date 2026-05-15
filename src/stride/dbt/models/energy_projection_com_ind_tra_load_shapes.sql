@@ -1,23 +1,7 @@
 {% if var('use_calibration', false) %}
 -- Use calibrated shapes for base sectors (already scaled to annual totals)
-SELECT
-    timestamp,
-    model_year,
-    geography,
-    sector,
-    'other' AS metric,
-    value
-FROM {{ ref('calibrated_load_shapes') }}
-WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
-
+-- When EV projection is enabled, EV charging is added as a separate metric.
 {% if var('use_ev_projection', false) %}
-UNION ALL
-
--- EV charging on top of calibrated Transportation (existing EV logic)
--- When calibration is enabled, the base Transportation is already calibrated above.
--- EV charging is an additional component that replaces the Road subsector portion.
--- We need to compute the EV annual energy and distribute it using the Transportation
--- load shape from calibrated_load_shapes.
 WITH ev_annual_energy AS (
     SELECT
         geography,
@@ -64,6 +48,18 @@ ev_scaling AS (
 )
 
 SELECT
+    timestamp,
+    model_year,
+    geography,
+    sector,
+    'other' AS metric,
+    value
+FROM {{ ref('calibrated_load_shapes') }}
+WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
+
+UNION ALL
+
+SELECT
     cth.timestamp,
     cth.model_year,
     cth.geography,
@@ -74,6 +70,18 @@ FROM calibrated_transport_hourly cth
 JOIN ev_scaling es
     ON cth.model_year = es.model_year
     AND cth.geography = es.geography
+
+{% else %}
+-- No EV projection: just use calibrated shapes directly
+SELECT
+    timestamp,
+    model_year,
+    geography,
+    sector,
+    'other' AS metric,
+    value
+FROM {{ ref('calibrated_load_shapes') }}
+WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
 {% endif %}
 
 {% else %}

@@ -1058,14 +1058,24 @@ class Project:
                 f"Found: {list(df.columns)}"
             )
 
-        # Validate row count against weather_year (leap year aware)
-        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
+        # Normalize to 8760 rows: remove Feb 29 for leap years.
+        # Stride load shapes always use 8760 hours regardless of leap year,
+        # so calibration data must match. The <0.3% energy difference from
+        # excluding one day is absorbed by the annual rescaling step.
+        if calendar.isleap(self._config.weather_year):
+            before = len(df)
+            df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
+            if len(df) < before:
+                logger.info(
+                    "Removed {} Feb 29 rows from calibration data (leap year normalization)",
+                    before - len(df),
+                )
+
+        expected_rows = 8760
         if len(df) != expected_rows:
             raise InvalidParameter(
-                f"Calibration CSV must have {expected_rows} rows for weather_year "
-                f"{self._config.weather_year} "
-                f"({'leap' if calendar.isleap(self._config.weather_year) else 'non-leap'}), "
-                f"got {len(df)}"
+                f"Calibration data must have {expected_rows} rows after leap-day removal, "
+                f"got {len(df)} for weather_year {self._config.weather_year}"
             )
 
         # Check year consistency — raise error on mismatch (user-provided CSV only;
