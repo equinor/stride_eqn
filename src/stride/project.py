@@ -778,7 +778,11 @@ class Project:
             if calibrated_scenarios is not None:
                 use_calibration = scenario.name in calibrated_scenarios
             else:
-                use_calibration = self._config.calibration.load_shape is not None
+                # When calibrated_scenarios is not provided (e.g., called outside
+                # create()), default to disabled. Only create() tracks which scenarios
+                # successfully loaded calibration data; enabling here without that
+                # verification could reference missing DuckDB tables.
+                use_calibration = False
             use_calibration_str = "true" if use_calibration else "false"
             vars_string = (
                 f'{{"scenario": "{scenario.name}", '
