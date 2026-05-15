@@ -1235,6 +1235,10 @@ class Project:
 
         If scenario.ev_load_shape is None or use_ev_projection is False, does nothing.
         Returns True if the EV load shape was loaded, False otherwise.
+
+        The CSV must have a 'value' column (8760 rows). If a 'timestamp' column is
+        also present, it is used to validate year alignment with weather_year and to
+        sort rows into correct calendar order before positional assignment.
         """
         if scenario.ev_load_shape is None or not scenario.use_ev_projection:
             return False
@@ -1254,15 +1258,43 @@ class Project:
             )
             raise InvalidParameter(msg)
 
-        # Handle leap year (8784 → 8760)
-        if len(df) == 8784:
-            # Remove 24 hours for Feb 29 (hours 1417–1440 in a leap year)
-            feb29_start = 24 * (31 + 28)  # Jan (31) + Feb 1-28 = 59 days × 24h = 1416
-            feb29_end = feb29_start + 24
-            df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
-            logger.info(
-                "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
-            )
+        # If timestamp column is present, use it for validation and sorting
+        has_timestamp = "timestamp" in df.columns
+        if has_timestamp:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != self._config.weather_year:
+                msg = (
+                    f"EV load shape CSV year ({csv_year}) != weather_year "
+                    f"({self._config.weather_year}). "
+                    f"Timestamps must match weather_year for correct calendar alignment."
+                )
+                raise InvalidParameter(msg)
+            # Sort by timestamp to guarantee correct calendar order
+            df = df.sort_values("timestamp").reset_index(drop=True)
+            # Remove Feb 29 via date filtering (more robust than positional)
+            if calendar.isleap(self._config.weather_year):
+                df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
+                df = df.reset_index(drop=True)
+            # Drop timestamp — downstream uses positional hour_idx
+            df = df.drop(columns=["timestamp"])
+        else:
+            # No timestamp: handle leap year positionally (8784 → 8760)
+            if len(df) == 8784:
+                if calendar.isleap(self._config.weather_year):
+                    feb29_start = 24 * (31 + 28)  # 59 days × 24h = 1416
+                    feb29_end = feb29_start + 24
+                    df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
+                    logger.info(
+                        "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
+                    )
+                else:
+                    msg = (
+                        f"EV load shape CSV has 8784 rows but weather_year "
+                        f"{self._config.weather_year} is not a leap year. "
+                        f"Expected exactly 8760 rows."
+                    )
+                    raise InvalidParameter(msg)
 
         if len(df) != 8760:
             msg = (
@@ -1279,15 +1311,18 @@ class Project:
             msg = "EV load shape 'value' column must not contain negative values"
             raise InvalidParameter(msg)
 
+        # Add explicit hour_idx in pandas to guarantee row order in DuckDB
+        df = df[["value"]].reset_index(drop=True)
+        df.insert(0, "hour_idx", range(1, len(df) + 1))
+
         # Load into DuckDB as a source table accessible by dbt
         table_name = f"{scenario.name}__ev_load_shape__1_0_0"
         self._con.sql("CREATE SCHEMA IF NOT EXISTS dsgrid_data")
         self._con.sql(f"""
             CREATE OR REPLACE TABLE dsgrid_data.{table_name} AS
-            SELECT
-                ROW_NUMBER() OVER () AS hour_idx,
-                value
+            SELECT hour_idx, value
             FROM df
+            ORDER BY hour_idx
         """)
         logger.info(
             "Loaded EV load shape ({} rows) for scenario '{}'",
@@ -1522,39 +1557,88 @@ class Project:
         """Build SQL using a user-provided hourly profile CSV.
 
         The profile file must have a `value` column with 8760 rows (one per hour).
-        It is joined positionally with the hourly timestamps from energy_projection.
+        If a `timestamp` column is also present, it is used to validate year alignment
+        with weather_year and to sort rows into correct calendar order.
         The profile is normalized so that annual totals match the input data.
         """
         profile_table = (
             f"stride.custom__{component.name}__{scenario_name}__profile"
         )
-        create_table_from_file(
-            self._con, profile_table, profile_path, replace=True
-        )
+
+        # Read into pandas first to handle optional timestamp column
+        df = pd.read_csv(profile_path)
 
         # Validate the profile has a value column
-        columns = [
-            col[0]
-            for col in self._con.sql(f"DESCRIBE {profile_table}").fetchall()
-        ]
-        if "value" not in columns:
+        if "value" not in df.columns:
             msg = (
                 f"Custom profile file must have a 'value' column. "
-                f"Found: {columns}"
+                f"Found: {list(df.columns)}"
             )
             raise InvalidParameter(msg)
 
-        row = self._con.sql(
-            f"SELECT COUNT(*) FROM {profile_table}"
-        ).fetchone()
-        assert row is not None
-        row_count = row[0]
-        if row_count != 8760:
+        # If timestamp column is present, use it for validation and sorting
+        has_timestamp = "timestamp" in df.columns
+        if has_timestamp:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != self._config.weather_year:
+                msg = (
+                    f"Custom profile '{component.name}' CSV year ({csv_year}) != "
+                    f"weather_year ({self._config.weather_year}). "
+                    f"Timestamps must match weather_year for correct calendar alignment."
+                )
+                raise InvalidParameter(msg)
+            # Sort by timestamp to guarantee correct calendar order
+            df = df.sort_values("timestamp").reset_index(drop=True)
+            # Remove Feb 29 via date filtering
+            if calendar.isleap(self._config.weather_year):
+                before = len(df)
+                df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
+                df = df.reset_index(drop=True)
+                if len(df) < before:
+                    logger.info(
+                        "Removed {} Feb 29 rows from custom profile '{}' (leap year normalization)",
+                        before - len(df),
+                        component.name,
+                    )
+            # Drop timestamp — downstream uses positional hour_idx
+            df = df.drop(columns=["timestamp"])
+        else:
+            # No timestamp: handle leap year positionally (8784 → 8760)
+            row_count = len(df)
+            if row_count == 8784:
+                if calendar.isleap(self._config.weather_year):
+                    feb29_start = 24 * (31 + 28)  # 59 days × 24h = 1416
+                    feb29_end = feb29_start + 24
+                    df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
+                    logger.info(
+                        "Removed 24 Feb 29 rows from custom profile '{}' (leap year normalization)",
+                        component.name,
+                    )
+                else:
+                    msg = (
+                        f"Custom profile file for '{component.name}' has 8784 rows but "
+                        f"weather_year {self._config.weather_year} is not a leap year. "
+                        f"Expected exactly 8760 rows."
+                    )
+                    raise InvalidParameter(msg)
+
+        if len(df) != 8760:
             msg = (
                 f"Custom profile file must have exactly 8760 rows "
-                f"(got {row_count})"
+                f"(got {len(df)})"
             )
             raise InvalidParameter(msg)
+
+        # Keep only the value column and load into DuckDB with explicit ordering
+        df = df[["value"]].reset_index(drop=True)
+        df.insert(0, "hour_idx", range(1, len(df) + 1))
+        self._con.sql(f"""
+            CREATE OR REPLACE TABLE {profile_table} AS
+            SELECT hour_idx, value
+            FROM df
+            ORDER BY hour_idx
+        """)
 
         return f"""
             WITH annual_data AS (
@@ -1574,7 +1658,7 @@ class Project:
             ),
             profile_data AS (
                 SELECT
-                    ROW_NUMBER() OVER (ORDER BY rowid) AS hour_idx,
+                    hour_idx,
                     value AS profile_value
                 FROM {profile_table}
             ),

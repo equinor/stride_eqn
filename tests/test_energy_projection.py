@@ -1,5 +1,7 @@
+import calendar
 from pathlib import Path
 
+import pandas as pd
 from duckdb import DuckDBPyConnection, DuckDBPyRelation
 from pandas.testing import assert_frame_equal
 
@@ -1121,15 +1123,28 @@ def test_ev_load_shape_file_not_found(tmp_path: Path) -> None:
 
 
 def test_ev_load_shape_leap_year_handling(tmp_path: Path) -> None:
-    """8784-row CSV is normalized to 8760 by removing Feb 29."""
+    """8784-row CSV is normalized to 8760 when weather_year is a leap year."""
     csv_path = tmp_path / "leap.csv"
     csv_path.write_text("value\n" + "\n".join(["1.0"] * 8784) + "\n")
 
-    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None)
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None, weather_year=2020)
+
+
+def test_ev_load_shape_8784_rejected_non_leap_year(tmp_path: Path) -> None:
+    """8784-row CSV is rejected when weather_year is not a leap year."""
+    csv_path = tmp_path / "leap_bad.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 8784) + "\n")
+
+    _run_load_ev_load_shape(
+        tmp_path, csv_path, expect_error="not a leap year", weather_year=2018
+    )
 
 
 def _run_load_ev_load_shape(
-    tmp_path: Path, csv_path: Path, expect_error: str | None
+    tmp_path: Path,
+    csv_path: Path,
+    expect_error: str | None,
+    weather_year: int = 2018,
 ) -> None:
     """Helper to test _load_ev_load_shape validation."""
     import duckdb
@@ -1137,7 +1152,7 @@ def _run_load_ev_load_shape(
 
     scenario = Scenario(name="test_ev", ev_load_shape=csv_path, use_ev_projection=True)
     con = duckdb.connect(":memory:")
-    project = _make_stub_project(tmp_path, con)
+    project = _make_stub_project(tmp_path, con, weather_year=weather_year)
 
     if expect_error is not None:
         import pytest
@@ -1155,7 +1170,9 @@ def _run_load_ev_load_shape(
     con.close()
 
 
-def _make_stub_project(tmp_path: Path, con: DuckDBPyConnection) -> Project:
+def _make_stub_project(
+    tmp_path: Path, con: DuckDBPyConnection, weather_year: int = 2018
+) -> Project:
     """Create a minimal Project instance for unit testing _load_ev_load_shape."""
     from stride.models import ProjectConfig
 
@@ -1166,7 +1183,7 @@ def _make_stub_project(tmp_path: Path, con: DuckDBPyConnection) -> Project:
         country="country_1",
         start_year=2025,
         end_year=2050,
-        weather_year=2018,
+        weather_year=weather_year,
     )
     project = object.__new__(Project)
     project._config = config
@@ -1174,3 +1191,38 @@ def _make_stub_project(tmp_path: Path, con: DuckDBPyConnection) -> Project:
     project._con = con
     project._palette = None
     return project
+
+
+def _generate_timestamped_profile_csv(path: Path, year: int) -> Path:
+    """Generate an 8760-row (or 8784 for leap year) profile CSV with timestamps."""
+    n_hours = 8784 if calendar.isleap(year) else 8760
+    timestamps = pd.date_range(start=f"{year}-01-01", periods=n_hours, freq="h")
+    # Simple daily pattern: higher during day, lower at night
+    values = [0.5 + 0.5 * ((i % 24) >= 8 and (i % 24) <= 20) for i in range(n_hours)]
+    df = pd.DataFrame({"timestamp": timestamps, "value": values})
+    csv_path = path / f"profile_{year}.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
+
+
+def test_ev_load_shape_with_timestamp(tmp_path: Path) -> None:
+    """EV load shape CSV with timestamp column is accepted and sorted correctly."""
+    csv_path = _generate_timestamped_profile_csv(tmp_path, year=2018)
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None, weather_year=2018)
+
+
+def test_ev_load_shape_with_timestamp_year_mismatch(tmp_path: Path) -> None:
+    """EV load shape CSV with timestamp from wrong year raises InvalidParameter."""
+    csv_path = _generate_timestamped_profile_csv(tmp_path, year=2019)
+
+    _run_load_ev_load_shape(
+        tmp_path, csv_path, expect_error="!= weather_year", weather_year=2018
+    )
+
+
+def test_ev_load_shape_with_timestamp_leap_year(tmp_path: Path) -> None:
+    """EV load shape CSV with timestamps from a leap year has Feb 29 removed."""
+    csv_path = _generate_timestamped_profile_csv(tmp_path, year=2020)
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None, weather_year=2020)
