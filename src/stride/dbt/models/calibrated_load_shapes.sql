@@ -9,6 +9,7 @@
 -- Applies historical load shape calibration when a calibration source is available.
 -- Distributes historical total hourly demand to sectors using STRIDE's sector shares,
 -- then rescales to preserve STRIDE's annual regression totals exactly.
+-- Finally, decomposes the calibrated sector totals back into enduses using IMAGE shares.
 
 WITH historical AS (
     -- The user-provided or ENTSO-E hourly total demand
@@ -18,17 +19,30 @@ WITH historical AS (
     FROM {{ source('scenario', 'calibration_load_shape') }}
 ),
 
-stride_sector_hourly AS (
-    -- STRIDE's existing sectorial load shapes (from weather module + annual regression)
-    -- These provide the sector shares for disaggregation
+stride_enduse_hourly AS (
+    -- STRIDE's enduse-level load shapes (from weather module)
+    -- Kept at enduse granularity for decomposing calibrated output later
     SELECT
         ls.timestamp,
         ls.model_year,
         ls.geography,
         ls.sector,
-        SUM(ls.adjusted_value) AS sector_value
+        ls.enduse,
+        ls.adjusted_value
     FROM {{ ref('load_shapes_expanded') }} ls
-    GROUP BY ls.timestamp, ls.model_year, ls.geography, ls.sector
+),
+
+stride_sector_hourly AS (
+    -- STRIDE's existing sectorial load shapes (from weather module + annual regression)
+    -- These provide the sector shares for disaggregation
+    SELECT
+        timestamp,
+        model_year,
+        geography,
+        sector,
+        SUM(adjusted_value) AS sector_value
+    FROM stride_enduse_hourly
+    GROUP BY timestamp, model_year, geography, sector
 ),
 
 stride_total_hourly AS (
@@ -100,17 +114,52 @@ scale_factors AS (
         AND r.geography = a.geography
         AND r.sector = a.sector
     GROUP BY r.model_year, r.geography, r.sector, a.annual_total
+),
+
+calibrated_sector AS (
+    -- Calibrated hourly values at sector level
+    SELECT
+        r.timestamp,
+        r.model_year,
+        r.geography,
+        r.sector,
+        r.raw_value * sf.scale_factor AS value
+    FROM raw_distributed r
+    JOIN scale_factors sf
+        ON r.model_year = sf.model_year
+        AND r.geography = sf.geography
+        AND r.sector = sf.sector
+),
+
+enduse_shares AS (
+    -- Step 3: compute enduse share within each sector at each hour
+    -- This preserves the IMAGE/BAIT enduse composition (heating vs cooling vs other)
+    SELECT
+        se.timestamp,
+        se.model_year,
+        se.geography,
+        se.sector,
+        se.enduse,
+        se.adjusted_value / NULLIF(sh.sector_value, 0) AS enduse_share
+    FROM stride_enduse_hourly se
+    JOIN stride_sector_hourly sh
+        ON se.timestamp = sh.timestamp
+        AND se.model_year = sh.model_year
+        AND se.geography = sh.geography
+        AND se.sector = sh.sector
 )
 
--- Final calibrated output
+-- Final calibrated output with enduse decomposition
 SELECT
-    r.timestamp,
-    r.model_year,
-    r.geography,
-    r.sector,
-    r.raw_value * sf.scale_factor AS value
-FROM raw_distributed r
-JOIN scale_factors sf
-    ON r.model_year = sf.model_year
-    AND r.geography = sf.geography
-    AND r.sector = sf.sector
+    c.timestamp,
+    c.model_year,
+    c.geography,
+    c.sector,
+    es.enduse,
+    c.value * es.enduse_share AS value
+FROM calibrated_sector c
+JOIN enduse_shares es
+    ON c.timestamp = es.timestamp
+    AND c.model_year = es.model_year
+    AND c.geography = es.geography
+    AND c.sector = es.sector

@@ -138,11 +138,16 @@ class Project:
         project._create_views_for_unchanged_tables(unchanged_tables_by_scenario)
 
         # Load calibration load shape (if configured) before dbt runs
+        # Track which scenarios actually got calibration data loaded
+        calibrated_scenarios: set[str] = set()
         if config.calibration.load_shape is not None:
             for scenario in config.scenarios:
-                project._load_calibration_load_shape(scenario)
+                if project._load_calibration_load_shape(scenario, dataset_dir):
+                    calibrated_scenarios.add(scenario.name)
 
-        project.compute_energy_projection(use_table_overrides=False)
+        project.compute_energy_projection(
+            use_table_overrides=False, calibrated_scenarios=calibrated_scenarios
+        )
         project._apply_calculated_table_overrides()
 
         # Populate the color palette with all metrics from the database
@@ -735,7 +740,11 @@ class Project:
         content = config_path.read_text()
         config_path.write_text(comment + content)
 
-    def compute_energy_projection(self, use_table_overrides: bool = True) -> None:
+    def compute_energy_projection(
+        self,
+        use_table_overrides: bool = True,
+        calibrated_scenarios: set[str] | None = None,
+    ) -> None:
         """Compute the energy projection dataset for all scenarios.
 
         This operation overwrites all tables and views in the database.
@@ -745,6 +754,9 @@ class Project:
         use_table_overrides
             If True, use compute results based on the table overrides specified in the project
             config.
+        calibrated_scenarios
+            Set of scenario names that have calibration data loaded. If None,
+            calibration is determined from config (backward-compatible).
         """
         logger.info(
             "Computing energy projection with model parameters: "
@@ -763,7 +775,15 @@ class Project:
             override_strings = [f'"{x}_override": "{x}_override"' for x in overrides]
             override_str = ", " + ", ".join(override_strings) if override_strings else ""
             use_ev_str = "true" if scenario.use_ev_projection else "false"
-            use_calibration_str = "true" if self._config.calibration.load_shape is not None else "false"
+            if calibrated_scenarios is not None:
+                use_calibration = scenario.name in calibrated_scenarios
+            else:
+                # When calibrated_scenarios is not provided (e.g., called outside
+                # create()), default to disabled. Only create() tracks which scenarios
+                # successfully loaded calibration data; enabling here without that
+                # verification could reference missing DuckDB tables.
+                use_calibration = False
+            use_calibration_str = "true" if use_calibration else "false"
             vars_string = (
                 f'{{"scenario": "{scenario.name}", '
                 f'"country": "{self._config.country}", '
@@ -1026,23 +1046,25 @@ class Project:
     KNOWN_CALIBRATION_SOURCES = {"entsoe", "smard", "ember"}
     HISTORICAL_DEMAND_SOURCES = ["entsoe", "smard", "ember"]
 
-    def _load_calibration_load_shape(self, scenario: Scenario) -> None:
+    def _load_calibration_load_shape(self, scenario: Scenario, dataset_dir: Path) -> bool:
         """Load the calibration load shape into a DuckDB table.
 
         If calibration is disabled (load_shape is None), does nothing.
         For known source names, resolves from stride-data.
         For file paths, reads the CSV and validates.
+
+        Returns True if calibration data was loaded, False otherwise.
         """
         config = self._config.calibration
         if config.load_shape is None:
-            return
+            return False
 
         shape_str = str(config.load_shape)
 
         if shape_str in self.KNOWN_CALIBRATION_SOURCES:
-            df_or_none = self._resolve_historical_demand(source=shape_str)
+            df_or_none = self._resolve_historical_demand(source=shape_str, dataset_dir=dataset_dir)
             if df_or_none is None:
-                return  # fallback to uncalibrated — warning already logged
+                return False  # fallback to uncalibrated — warning already logged
             df = df_or_none
         else:
             path = Path(shape_str)
@@ -1109,13 +1131,15 @@ class Project:
             len(df),
             scenario.name,
         )
+        return True
 
-    def _resolve_historical_demand(self, source: str) -> pd.DataFrame | None:
+    def _resolve_historical_demand(
+        self, source: str, dataset_dir: Path
+    ) -> pd.DataFrame | None:
         """Resolve historical demand load shape from a stride-data source table.
 
         Returns DataFrame if data found, None to fall back to uncalibrated pipeline.
         """
-        dataset_dir = self._get_dataset_dir("global")
         table_dir = dataset_dir / "profile_data" / f"historical_demand_{source}"
         parquet_path = table_dir / "load_data.parquet"
         country = self._config.country
