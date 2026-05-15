@@ -102,19 +102,7 @@ def test_calibration_csv_wrong_row_count(tmp_path: Path) -> None:
     csv_path = tmp_path / "bad_rows.csv"
     df.to_csv(csv_path, index=False)
 
-    # Create a project config that references this CSV
-    config = ProjectConfig.from_file(TEST_PROJECT_CONFIG)
-    config.calibration = CalibrationConfig(load_shape=csv_path)
-
-    # Simulate calling _load_calibration_load_shape
-    # We test via direct instantiation since full project.create needs dataset
-    from stride.project import Project
-    import duckdb
-
-    # We can't easily test via Project.create without the full dataset,
-    # so test the validation logic directly
     with pytest.raises(InvalidParameter, match="must have 8760 rows"):
-        # Manually invoke the validation path
         _validate_calibration_csv(csv_path, weather_year=2018)
 
 
@@ -132,7 +120,8 @@ def test_calibration_csv_leap_year_mismatch(tmp_path: Path) -> None:
     # Create 8784-row CSV for 2020 (leap year)
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2020)
 
-    # weather_year=2019 expects 8760 rows
+    # weather_year=2019 is not a leap year, so no Feb 29 removal happens.
+    # The 8784-row CSV doesn't match the expected 8760 rows.
     with pytest.raises(InvalidParameter, match="must have 8760 rows"):
         _validate_calibration_csv(csv_path, weather_year=2019)
 
@@ -157,7 +146,7 @@ def test_calibration_csv_valid(tmp_path: Path) -> None:
 
 def test_calibration_file_not_found() -> None:
     """Non-existent calibration file raises InvalidParameter at config load time."""
-    import json5
+    import json
     import tempfile
 
     config_data = {
@@ -171,7 +160,6 @@ def test_calibration_file_not_found() -> None:
         "calibration": {"load_shape": "/nonexistent/path/calibration.csv"},
     }
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json5", delete=False) as f:
-        import json
         json.dump(config_data, f)
         tmp_file = f.name
 
@@ -273,8 +261,11 @@ def test_calibration_disabled_unchanged(tmp_path: Path) -> None:
             "SELECT DISTINCT metric FROM baseline.energy_projection"
         ).fetchall()
         metric_set = {m[0] for m in metrics}
-        # Should have heating, cooling, other (standard enduses)
-        assert "heating" in metric_set or "cooling" in metric_set or "other" in metric_set
+        # Uncalibrated pipeline should have enduse-level metrics, not just 'other'
+        assert metric_set != {"other"}, (
+            "Expected enduse-level metrics (heating/cooling/other) but got only 'other'. "
+            "This looks like calibrated output."
+        )
 
 
 # ---- Helper for direct validation testing ----
@@ -284,7 +275,7 @@ def _validate_calibration_csv(csv_path: Path, weather_year: int) -> None:
     """Validate a calibration CSV file (standalone, without a full Project).
 
     This replicates the validation logic from Project._load_calibration_load_shape
-    for unit testing purposes.
+    for unit testing purposes: normalize to 8760 by removing Feb 29 for leap years.
     """
     df = pd.read_csv(csv_path, parse_dates=["timestamp"])
 
@@ -292,27 +283,32 @@ def _validate_calibration_csv(csv_path: Path, weather_year: int) -> None:
     required_cols = {"timestamp", "total_load_mwh"}
     missing = required_cols - set(df.columns)
     if missing:
-        raise InvalidParameter(
+        msg = (
             f"Calibration CSV is missing required columns: {missing}. "
             f"Found: {list(df.columns)}"
         )
+        raise InvalidParameter(msg)
 
-    # Check row count (leap year aware)
-    expected_rows = 8784 if calendar.isleap(weather_year) else 8760
+    # Normalize to 8760: remove Feb 29 for leap years (matches production logic)
+    if calendar.isleap(weather_year):
+        df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
+
+    expected_rows = 8760
     if len(df) != expected_rows:
-        raise InvalidParameter(
+        msg = (
             f"Calibration CSV must have {expected_rows} rows for weather_year "
-            f"{weather_year} "
-            f"({'leap' if calendar.isleap(weather_year) else 'non-leap'}), "
+            f"{weather_year} after leap-day normalization, "
             f"got {len(df)}"
         )
+        raise InvalidParameter(msg)
 
     # Check year consistency
     csv_year = df["timestamp"].dt.year.iloc[0]
     if csv_year != weather_year:
-        raise InvalidParameter(
+        msg = (
             f"Calibration CSV year ({csv_year}) != weather_year ({weather_year}). "
             f"The calibration SQL joins on timestamp, so mismatched years would "
             f"produce zero matches and silently disable calibration. "
             f"Use a CSV matching weather_year={weather_year}."
         )
+        raise InvalidParameter(msg)
