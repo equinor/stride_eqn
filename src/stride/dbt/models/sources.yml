@@ -27,3 +27,5 @@ sources:
         identifier: "{{ var('scenario', 'active_scenario') }}__vehicle_per_capita_regressions__1_0_0"
       - name: calibration_load_shape
         identifier: "{{ var('scenario', 'active_scenario') }}__calibration_load_shape__1_0_0"
+      - name: ev_load_shape
+        identifier: "{{ var('scenario', 'active_scenario') }}__ev_load_shape__1_0_0"

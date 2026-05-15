@@ -12,6 +12,66 @@ WITH ev_annual_energy AS (
     FROM {{ table_ref('ev_annual_energy_tj') }}
 ),
 
+{% if var('use_ev_load_shape', false) %}
+-- Custom EV load shape: normalize user-provided profile and use for hourly distribution
+ev_profile_raw AS (
+    SELECT hour_idx, value AS profile_value
+    FROM {{ source('scenario', 'ev_load_shape') }}
+),
+ev_profile_normalized AS (
+    SELECT
+        hour_idx,
+        profile_value / SUM(profile_value) OVER () AS fraction
+    FROM ev_profile_raw
+),
+ev_hourly_timestamps AS (
+    SELECT
+        timestamp,
+        model_year,
+        geography,
+        ROW_NUMBER() OVER (PARTITION BY model_year, geography ORDER BY timestamp) AS hour_idx
+    FROM (
+        SELECT DISTINCT timestamp, model_year, geography
+        FROM {{ ref('calibrated_load_shapes') }}
+        WHERE sector = 'Transportation'
+    )
+),
+ev_annual_total AS (
+    SELECT
+        model_year,
+        geography,
+        SUM(stride_annual_total) AS ev_total_mwh
+    FROM ev_annual_energy
+    GROUP BY model_year, geography
+)
+
+SELECT
+    timestamp,
+    model_year,
+    geography,
+    sector,
+    enduse AS metric,
+    value
+FROM {{ ref('calibrated_load_shapes') }}
+WHERE sector IN ('Commercial', 'Industrial', 'Transportation')
+
+UNION ALL
+
+SELECT
+    eht.timestamp,
+    eht.model_year,
+    eht.geography,
+    'Transportation' AS sector,
+    'ev_charging' AS metric,
+    epn.fraction * eat.ev_total_mwh AS value
+FROM ev_hourly_timestamps eht
+JOIN ev_profile_normalized epn ON eht.hour_idx = epn.hour_idx
+JOIN ev_annual_total eat
+    ON eht.model_year = eat.model_year
+    AND eht.geography = eat.geography
+
+{% else %}
+-- Fallback: use calibrated transport shape for EV hourly distribution
 calibrated_transport_hourly AS (
     -- Sum across enduses to get sector-level hourly for EV scaling
     SELECT
@@ -72,6 +132,9 @@ FROM calibrated_transport_hourly cth
 JOIN ev_scaling es
     ON cth.model_year = es.model_year
     AND cth.geography = es.geography
+
+{% endif %}
+{# end use_ev_load_shape #}
 
 {% else %}
 -- No EV projection: just use calibrated shapes directly
@@ -218,6 +281,38 @@ UNION ALL
 -- EV rows: use EV scaling factor, single 'ev_charging' metric per hour.
 -- Aggregate load shape across enduses to avoid per-enduse duplication.
 -- Only applies to Transportation sector when EV projection is enabled.
+{% if var('use_ev_load_shape', false) %}
+-- Custom EV load shape: normalize user-provided profile and use for hourly distribution
+SELECT
+    ls_ts.timestamp,
+    ls_ts.model_year,
+    ls_ts.geography,
+    'Transportation' AS sector,
+    'ev_charging' AS metric,
+    (ep.profile_value / ep_total.total_value) * ev_totals.ev_annual_mwh AS value
+FROM (
+    SELECT DISTINCT timestamp, model_year, geography,
+        ROW_NUMBER() OVER (PARTITION BY model_year, geography ORDER BY timestamp) AS hour_idx
+    FROM load_shapes_filtered
+    WHERE sector = 'Transportation'
+) ls_ts
+JOIN (
+    SELECT hour_idx, value AS profile_value
+    FROM {{ source('scenario', 'ev_load_shape') }}
+) ep ON ls_ts.hour_idx = ep.hour_idx
+CROSS JOIN (
+    SELECT SUM(value) AS total_value
+    FROM {{ source('scenario', 'ev_load_shape') }}
+) ep_total
+JOIN (
+    SELECT geography, model_year, SUM(stride_annual_total) AS ev_annual_mwh
+    FROM ev_annual_energy
+    GROUP BY geography, model_year
+) ev_totals
+    ON ls_ts.geography = ev_totals.geography
+    AND ls_ts.model_year = ev_totals.model_year
+{% else %}
+-- Fallback: use Transportation sector aggregate shape for EV hourly distribution
 SELECT
     ls.timestamp,
     ls.model_year,
@@ -233,4 +328,5 @@ JOIN scaling_factors sf
 WHERE sf.energy_source = 'ev'
   AND ls.sector = 'Transportation'
 GROUP BY ls.timestamp, ls.model_year, ls.geography, ls.sector, sf.scaling_factor
+{% endif %}
 {% endif %}

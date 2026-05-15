@@ -145,8 +145,16 @@ class Project:
                 if project._load_calibration_load_shape(scenario, dataset_dir):
                     calibrated_scenarios.add(scenario.name)
 
+        # Load EV load shape (if configured) before dbt runs
+        ev_load_shape_scenarios: set[str] = set()
+        for scenario in config.scenarios:
+            if project._load_ev_load_shape(scenario):
+                ev_load_shape_scenarios.add(scenario.name)
+
         project.compute_energy_projection(
-            use_table_overrides=False, calibrated_scenarios=calibrated_scenarios
+            use_table_overrides=False,
+            calibrated_scenarios=calibrated_scenarios,
+            ev_load_shape_scenarios=ev_load_shape_scenarios,
         )
         project._apply_calculated_table_overrides()
 
@@ -270,6 +278,18 @@ class Project:
                     shutil.copy2(override_path, dest_file)
                     new_overrides[component_name] = dest_file
                 scenario.custom_demand_overrides = new_overrides
+
+            # Archive ev_load_shape (read during _load_ev_load_shape, keep absolute)
+            if scenario.ev_load_shape is not None:
+                dest_dir = scenarios_dir / scenario.name
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                basename = Path(scenario.ev_load_shape).name
+                if basename in used_names:
+                    basename = f"ev_load_shape_{basename}"
+                used_names.add(basename)
+                dest_file = dest_dir / basename
+                shutil.copy2(scenario.ev_load_shape, dest_file)
+                scenario.ev_load_shape = dest_file
 
     def _archive_custom_demand_files(self, inputs_dir: Path) -> None:
         """Archive custom demand component files with absolute paths."""
@@ -655,7 +675,7 @@ class Project:
         return [
             x
             for x in Scenario.model_fields
-            if x not in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides")
+            if x not in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides", "ev_load_shape")
         ]
 
     def persist(self) -> None:
@@ -744,6 +764,7 @@ class Project:
         self,
         use_table_overrides: bool = True,
         calibrated_scenarios: set[str] | None = None,
+        ev_load_shape_scenarios: set[str] | None = None,
     ) -> None:
         """Compute the energy projection dataset for all scenarios.
 
@@ -757,6 +778,9 @@ class Project:
         calibrated_scenarios
             Set of scenario names that have calibration data loaded. If None,
             calibration is determined from config (backward-compatible).
+        ev_load_shape_scenarios
+            Set of scenario names that have a custom EV load shape loaded. If None,
+            defaults to empty (use transport sector shape).
         """
         logger.info(
             "Computing energy projection with model parameters: "
@@ -784,6 +808,11 @@ class Project:
                 # verification could reference missing DuckDB tables.
                 use_calibration = False
             use_calibration_str = "true" if use_calibration else "false"
+            if ev_load_shape_scenarios is not None:
+                use_ev_load_shape = scenario.name in ev_load_shape_scenarios
+            else:
+                use_ev_load_shape = False
+            use_ev_load_shape_str = "true" if use_ev_load_shape else "false"
             vars_string = (
                 f'{{"scenario": "{scenario.name}", '
                 f'"country": "{self._config.country}", '
@@ -794,7 +823,8 @@ class Project:
                 f'"enable_shoulder_month_smoothing": {str(self._config.model_parameters.enable_shoulder_month_smoothing).lower()}, '
                 f'"shoulder_month_smoothing_factor": {self._config.model_parameters.shoulder_month_smoothing_factor}, '
                 f'"use_ev_projection": {use_ev_str}, '
-                f'"use_calibration": {use_calibration_str}'
+                f'"use_calibration": {use_calibration_str}, '
+                f'"use_ev_load_shape": {use_ev_load_shape_str}'
                 f"{override_str}}}"
             )
             # TODO: May want to run `build` instead of `run` if we add dbt tests.
@@ -1198,6 +1228,119 @@ class Project:
             if (dataset_dir / "profile_data" / f"historical_demand_{s}" / "load_data.parquet").exists()
         ]
 
+    # ---- EV load shape ----
+
+    @staticmethod
+    def _normalize_ev_load_shape_df(
+        df: pd.DataFrame, weather_year: int
+    ) -> pd.DataFrame:
+        """Normalize an EV load shape DataFrame to exactly 8760 rows.
+
+        Handles optional ``timestamp`` column (for year validation, sorting,
+        and calendar-aware Feb 29 removal) and positional leap-year trimming
+        when no timestamp is present.
+        """
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != weather_year:
+                msg = (
+                    f"EV load shape CSV year ({csv_year}) != weather_year "
+                    f"({weather_year}). "
+                    f"Timestamps must match weather_year for correct calendar alignment."
+                )
+                raise InvalidParameter(msg)
+            df = df.sort_values("timestamp").reset_index(drop=True)
+            if calendar.isleap(weather_year):
+                df = df[
+                    ~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))
+                ]
+                df = df.reset_index(drop=True)
+            df = df.drop(columns=["timestamp"])
+        elif len(df) == 8784:
+            if calendar.isleap(weather_year):
+                feb29_start = 24 * (31 + 28)
+                feb29_end = feb29_start + 24
+                df = pd.concat(
+                    [df.iloc[:feb29_start], df.iloc[feb29_end:]]
+                ).reset_index(drop=True)
+                logger.info(
+                    "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
+                )
+            else:
+                msg = (
+                    f"EV load shape CSV has 8784 rows but weather_year "
+                    f"{weather_year} is not a leap year. "
+                    f"Expected exactly 8760 rows."
+                )
+                raise InvalidParameter(msg)
+        return df
+
+    def _load_ev_load_shape(self, scenario: Scenario) -> bool:
+        """Load an optional EV charging load shape CSV into DuckDB.
+
+        If scenario.ev_load_shape is None or use_ev_projection is False, does nothing.
+        Returns True if the EV load shape was loaded, False otherwise.
+
+        The CSV must have a 'value' column (8760 rows). If a 'timestamp' column is
+        also present, it is used to validate year alignment with weather_year and to
+        sort rows into correct calendar order before positional assignment.
+        """
+        if scenario.ev_load_shape is None or not scenario.use_ev_projection:
+            return False
+
+        path = Path(scenario.ev_load_shape)
+        if not path.exists():
+            msg = f"EV load shape file not found: {path}"
+            raise InvalidParameter(msg)
+
+        df = pd.read_csv(path)
+
+        # Validate required column
+        if "value" not in df.columns:
+            msg = (
+                f"EV load shape CSV must have a 'value' column. "
+                f"Found: {list(df.columns)}"
+            )
+            raise InvalidParameter(msg)
+
+        df = self._normalize_ev_load_shape_df(df, self._config.weather_year)
+
+        if len(df) != 8760:
+            msg = (
+                f"EV load shape CSV must have exactly 8760 rows "
+                f"(got {len(df)})"
+            )
+            raise InvalidParameter(msg)
+
+        # Validate values are numeric and non-negative
+        if not pd.api.types.is_numeric_dtype(df["value"]):
+            msg = "EV load shape 'value' column must be numeric"
+            raise InvalidParameter(msg)
+        if (df["value"] < 0).any():
+            msg = "EV load shape 'value' column must not contain negative values"
+            raise InvalidParameter(msg)
+
+        # Add explicit hour_idx in pandas to guarantee row order in DuckDB
+        df = df[["value"]].reset_index(drop=True)
+        df.insert(0, "hour_idx", range(1, len(df) + 1))
+
+        # Load into DuckDB as a source table accessible by dbt
+        table_name = f"{scenario.name}__ev_load_shape__1_0_0"
+        self._con.sql("CREATE SCHEMA IF NOT EXISTS dsgrid_data")
+        self._con.sql(f"""
+            CREATE OR REPLACE TABLE dsgrid_data.{table_name} AS
+            SELECT hour_idx, value
+            FROM df
+            ORDER BY hour_idx
+        """)
+        logger.info(
+            "Loaded EV load shape ({} rows) for scenario '{}'",
+            len(df),
+            scenario.name,
+        )
+        return True
+
     def _build_profile_sql(
         self,
         component: CustomDemandComponent,
@@ -1424,39 +1567,88 @@ class Project:
         """Build SQL using a user-provided hourly profile CSV.
 
         The profile file must have a `value` column with 8760 rows (one per hour).
-        It is joined positionally with the hourly timestamps from energy_projection.
+        If a `timestamp` column is also present, it is used to validate year alignment
+        with weather_year and to sort rows into correct calendar order.
         The profile is normalized so that annual totals match the input data.
         """
         profile_table = (
             f"stride.custom__{component.name}__{scenario_name}__profile"
         )
-        create_table_from_file(
-            self._con, profile_table, profile_path, replace=True
-        )
+
+        # Read into pandas first to handle optional timestamp column
+        df = pd.read_csv(profile_path)
 
         # Validate the profile has a value column
-        columns = [
-            col[0]
-            for col in self._con.sql(f"DESCRIBE {profile_table}").fetchall()
-        ]
-        if "value" not in columns:
+        if "value" not in df.columns:
             msg = (
                 f"Custom profile file must have a 'value' column. "
-                f"Found: {columns}"
+                f"Found: {list(df.columns)}"
             )
             raise InvalidParameter(msg)
 
-        row = self._con.sql(
-            f"SELECT COUNT(*) FROM {profile_table}"
-        ).fetchone()
-        assert row is not None
-        row_count = row[0]
-        if row_count != 8760:
+        # If timestamp column is present, use it for validation and sorting
+        has_timestamp = "timestamp" in df.columns
+        if has_timestamp:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != self._config.weather_year:
+                msg = (
+                    f"Custom profile '{component.name}' CSV year ({csv_year}) != "
+                    f"weather_year ({self._config.weather_year}). "
+                    f"Timestamps must match weather_year for correct calendar alignment."
+                )
+                raise InvalidParameter(msg)
+            # Sort by timestamp to guarantee correct calendar order
+            df = df.sort_values("timestamp").reset_index(drop=True)
+            # Remove Feb 29 via date filtering
+            if calendar.isleap(self._config.weather_year):
+                before = len(df)
+                df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
+                df = df.reset_index(drop=True)
+                if len(df) < before:
+                    logger.info(
+                        "Removed {} Feb 29 rows from custom profile '{}' (leap year normalization)",
+                        before - len(df),
+                        component.name,
+                    )
+            # Drop timestamp — downstream uses positional hour_idx
+            df = df.drop(columns=["timestamp"])
+        else:
+            # No timestamp: handle leap year positionally (8784 → 8760)
+            row_count = len(df)
+            if row_count == 8784:
+                if calendar.isleap(self._config.weather_year):
+                    feb29_start = 24 * (31 + 28)  # 59 days × 24h = 1416
+                    feb29_end = feb29_start + 24
+                    df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
+                    logger.info(
+                        "Removed 24 Feb 29 rows from custom profile '{}' (leap year normalization)",
+                        component.name,
+                    )
+                else:
+                    msg = (
+                        f"Custom profile file for '{component.name}' has 8784 rows but "
+                        f"weather_year {self._config.weather_year} is not a leap year. "
+                        f"Expected exactly 8760 rows."
+                    )
+                    raise InvalidParameter(msg)
+
+        if len(df) != 8760:
             msg = (
                 f"Custom profile file must have exactly 8760 rows "
-                f"(got {row_count})"
+                f"(got {len(df)})"
             )
             raise InvalidParameter(msg)
+
+        # Keep only the value column and load into DuckDB with explicit ordering
+        df = df[["value"]].reset_index(drop=True)
+        df.insert(0, "hour_idx", range(1, len(df) + 1))
+        self._con.sql(f"""
+            CREATE OR REPLACE TABLE {profile_table} AS
+            SELECT hour_idx, value
+            FROM df
+            ORDER BY hour_idx
+        """)
 
         return f"""
             WITH annual_data AS (
@@ -1476,7 +1668,7 @@ class Project:
             ),
             profile_data AS (
                 SELECT
-                    ROW_NUMBER() OVER (ORDER BY rowid) AS hour_idx,
+                    hour_idx,
                     value AS profile_value
                 FROM {profile_table}
             ),
