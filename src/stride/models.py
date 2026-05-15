@@ -1,3 +1,4 @@
+import re
 from enum import StrEnum
 from pathlib import Path
 from typing import Self
@@ -59,6 +60,23 @@ class CustomDemandComponent(DSGBaseModel):  # type: ignore
             msg = f"Component name must be a valid Python identifier: {name!r}"
             raise ValueError(msg)
         return name
+
+
+class CalibrationConfig(DSGBaseModel):  # type: ignore
+    """Configuration for historical load shape calibration."""
+
+    load_shape: Path | str | None = Field(
+        default=None,
+        description=(
+            "Path to 8760h CSV with columns (timestamp, total_load_mwh), "
+            "or a source name ('entsoe', 'smard', etc.) to auto-resolve from stride-data, "
+            "or null/omitted to disable calibration."
+        ),
+    )
+    method: str = Field(
+        default="proportional",
+        description="Disaggregation method: 'proportional' (default) or 'residual' (Phase 4)",
+    )
 
 
 class Scenario(DSGBaseModel):  # type: ignore
@@ -128,6 +146,9 @@ class Scenario(DSGBaseModel):  # type: ignore
     @field_validator("name")
     @classmethod
     def check_name(cls, name: str) -> str:
+        if not re.match(r'^[a-zA-Z0-9_]+$', name):
+            msg = f"Scenario name must be alphanumeric/underscore only, got: {name!r}"
+            raise ValueError(msg)
         if name in (
             "dsgrid_data",
             "dsgrid_lookup",
@@ -218,6 +239,10 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
         default=[],
         description="Additive custom demand components (e.g., heat pumps, data centers)",
     )
+    calibration: CalibrationConfig = Field(
+        default_factory=CalibrationConfig,
+        description="Configuration for historical load shape calibration",
+    )
     color_palette: dict[str, dict[str, str]] = Field(
         default={"scenarios": {}, "model_years": {}, "sectors": {}, "end_uses": {}},
         description="Color palette organized into scenarios, model_years, sectors, and end_uses categories. Each category maps labels to hex/rgb color strings for the UI.",
@@ -273,7 +298,23 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
                     f"data_file={component.data_file} does not exist"
                 )
                 raise InvalidParameter(msg)
+        cls._resolve_calibration_path(config, path.parent)
         return config  # type: ignore
+
+    @classmethod
+    def _resolve_calibration_path(cls, config: Self, base_dir: Path) -> None:
+        """Resolve calibration load_shape path if it's a file path, not a source name."""
+        KNOWN_CALIBRATION_SOURCES = {"entsoe", "smard", "ember"}
+        if config.calibration.load_shape is not None:
+            shape = str(config.calibration.load_shape)
+            if shape not in KNOWN_CALIBRATION_SOURCES:
+                resolved = Path(shape)
+                if not resolved.is_absolute():
+                    resolved = (base_dir / resolved).resolve()
+                if not resolved.exists():
+                    msg = f"Calibration load_shape file does not exist: {resolved}"
+                    raise InvalidParameter(msg)
+                config.calibration.load_shape = resolved
 
     def list_model_years(self) -> list[int]:
         """List the model years in the project."""

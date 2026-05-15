@@ -48,7 +48,7 @@ class KnownDataset:
 KNOWN_DATASETS: dict[str, KnownDataset] = {
     "global": KnownDataset(
         name="global",
-        repo="dsgrid/stride-data",
+        repo="equinor/stride-data_eqn",
         subdirectory="global",
         description="Global energy projection dataset",
         test_subdirectory="global-test",
