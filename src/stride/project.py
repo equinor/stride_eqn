@@ -1136,7 +1136,7 @@ class Project:
         ]
 
         if len(df) > 0:
-            return df
+            return df  # type: ignore[no-any-return]
 
         # Data not available — find alternatives and fall back
         alternatives = self._find_alternative_sources(dataset_dir, country, year, exclude=source)

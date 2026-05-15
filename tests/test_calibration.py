@@ -44,21 +44,21 @@ def _generate_synthetic_calibration_csv(path: Path, year: int = 2018) -> Path:
 # ---- Unit tests for CalibrationConfig ----
 
 
-def test_calibration_config_default():
+def test_calibration_config_default() -> None:
     """Calibration is disabled by default."""
     config = ProjectConfig.from_file(TEST_PROJECT_CONFIG)
     assert config.calibration.load_shape is None
     assert config.calibration.method == "proportional"
 
 
-def test_calibration_config_model():
+def test_calibration_config_model() -> None:
     """CalibrationConfig can be created with valid values."""
     cfg = CalibrationConfig(load_shape="entsoe", method="proportional")
     assert cfg.load_shape == "entsoe"
     assert cfg.method == "proportional"
 
 
-def test_calibration_config_none():
+def test_calibration_config_none() -> None:
     """CalibrationConfig with None load_shape means disabled."""
     cfg = CalibrationConfig()
     assert cfg.load_shape is None
@@ -67,7 +67,7 @@ def test_calibration_config_none():
 # ---- Scenario name validation ----
 
 
-def test_scenario_name_valid():
+def test_scenario_name_valid() -> None:
     """Valid scenario names pass validation."""
     s = Scenario(name="baseline")
     assert s.name == "baseline"
@@ -75,7 +75,7 @@ def test_scenario_name_valid():
     assert s.name == "my_scenario_2"
 
 
-def test_scenario_name_invalid_chars():
+def test_scenario_name_invalid_chars() -> None:
     """Scenario names with special characters are rejected."""
     with pytest.raises(ValueError, match="alphanumeric/underscore only"):
         Scenario(name="my-scenario")
@@ -85,7 +85,7 @@ def test_scenario_name_invalid_chars():
         Scenario(name="scenario;DROP TABLE")
 
 
-def test_scenario_name_reserved():
+def test_scenario_name_reserved() -> None:
     """Reserved schema names are rejected."""
     with pytest.raises(ValueError, match="conflicts with existing"):
         Scenario(name="dsgrid_data")
@@ -94,7 +94,7 @@ def test_scenario_name_reserved():
 # ---- CSV validation tests ----
 
 
-def test_calibration_csv_wrong_row_count(tmp_path: Path):
+def test_calibration_csv_wrong_row_count(tmp_path: Path) -> None:
     """CSV with wrong row count raises InvalidParameter."""
     # Create a CSV with wrong number of rows (100 instead of 8760)
     timestamps = pd.date_range("2018-01-01", periods=100, freq="h", tz="UTC")
@@ -118,7 +118,7 @@ def test_calibration_csv_wrong_row_count(tmp_path: Path):
         _validate_calibration_csv(csv_path, weather_year=2018)
 
 
-def test_calibration_csv_year_mismatch(tmp_path: Path):
+def test_calibration_csv_year_mismatch(tmp_path: Path) -> None:
     """CSV with mismatched year raises InvalidParameter."""
     # Create a CSV for 2019 but project uses weather_year=2018
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2019)
@@ -127,7 +127,7 @@ def test_calibration_csv_year_mismatch(tmp_path: Path):
         _validate_calibration_csv(csv_path, weather_year=2018)
 
 
-def test_calibration_csv_leap_year_mismatch(tmp_path: Path):
+def test_calibration_csv_leap_year_mismatch(tmp_path: Path) -> None:
     """CSV with leap year rows rejected for non-leap weather_year."""
     # Create 8784-row CSV for 2020 (leap year)
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2020)
@@ -137,7 +137,7 @@ def test_calibration_csv_leap_year_mismatch(tmp_path: Path):
         _validate_calibration_csv(csv_path, weather_year=2019)
 
 
-def test_calibration_csv_missing_columns(tmp_path: Path):
+def test_calibration_csv_missing_columns(tmp_path: Path) -> None:
     """CSV missing required columns raises InvalidParameter."""
     timestamps = pd.date_range("2018-01-01", periods=8760, freq="h", tz="UTC")
     df = pd.DataFrame({"timestamp": timestamps, "wrong_column": range(8760)})
@@ -148,14 +148,14 @@ def test_calibration_csv_missing_columns(tmp_path: Path):
         _validate_calibration_csv(csv_path, weather_year=2018)
 
 
-def test_calibration_csv_valid(tmp_path: Path):
+def test_calibration_csv_valid(tmp_path: Path) -> None:
     """Valid calibration CSV passes all validation."""
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2018)
     # Should not raise
     _validate_calibration_csv(csv_path, weather_year=2018)
 
 
-def test_calibration_file_not_found():
+def test_calibration_file_not_found() -> None:
     """Non-existent calibration file raises InvalidParameter at config load time."""
     import json5
     import tempfile
@@ -184,7 +184,7 @@ def test_calibration_file_not_found():
 # ---- Integration test ----
 
 
-def test_create_project_with_calibration(tmp_path: Path):
+def test_create_project_with_calibration(tmp_path: Path) -> None:
     """Project creation succeeds with a valid calibration CSV."""
     # Generate a synthetic calibration CSV for weather_year=2018
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2018)
@@ -249,7 +249,7 @@ def test_create_project_with_calibration(tmp_path: Path):
         assert (calibrated_annual["annual_total"] > 0).all()
 
 
-def test_calibration_disabled_unchanged(tmp_path: Path):
+def test_calibration_disabled_unchanged(tmp_path: Path) -> None:
     """Without calibration, output is identical to existing behavior."""
     runner = CliRunner()
     result = runner.invoke(
