@@ -28,7 +28,6 @@ from stride.dsgrid_integration import (
 )
 from stride.io import create_table_from_file, export_table
 from stride.models import (
-    CalibrationConfig,
     CalculatedTableOverride,
     CustomDemandComponent,
     ProjectConfig,
@@ -1053,10 +1052,11 @@ class Project:
         required_cols = {"timestamp", "total_load_mwh"}
         missing = required_cols - set(df.columns)
         if missing:
-            raise InvalidParameter(
+            msg = (
                 f"Calibration CSV is missing required columns: {missing}. "
                 f"Found: {list(df.columns)}"
             )
+            raise InvalidParameter(msg)
 
         # Normalize to 8760 rows: remove Feb 29 for leap years.
         # Stride load shapes always use 8760 hours regardless of leap year,
@@ -1073,23 +1073,25 @@ class Project:
 
         expected_rows = 8760
         if len(df) != expected_rows:
-            raise InvalidParameter(
+            msg = (
                 f"Calibration data must have {expected_rows} rows after leap-day removal, "
                 f"got {len(df)} for weather_year {self._config.weather_year}"
             )
+            raise InvalidParameter(msg)
 
         # Check year consistency — raise error on mismatch (user-provided CSV only;
         # entsoe path filters by weather_year automatically)
         if shape_str not in self.KNOWN_CALIBRATION_SOURCES:
             csv_year = df["timestamp"].dt.year.iloc[0]
             if csv_year != self._config.weather_year:
-                raise InvalidParameter(
+                msg = (
                     f"Calibration CSV year ({csv_year}) != weather_year "
                     f"({self._config.weather_year}). "
                     f"The calibration SQL joins on timestamp, so mismatched years would "
                     f"produce zero matches and silently disable calibration. "
                     f"Use a CSV matching weather_year={self._config.weather_year}."
                 )
+                raise InvalidParameter(msg)
 
         # Load into DuckDB as a source table accessible by dbt
         table_name = f"{scenario.name}__calibration_load_shape__1_0_0"
@@ -1120,10 +1122,11 @@ class Project:
         year = self._config.weather_year
 
         if not parquet_path.exists():
-            raise InvalidParameter(
+            msg = (
                 f"Historical demand source '{source}' not found at {table_dir}. "
                 f"Available sources: {self._list_available_sources(dataset_dir)}"
             )
+            raise InvalidParameter(msg)
 
         # Filter to country + weather_year
         df = pd.read_parquet(parquet_path)

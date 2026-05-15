@@ -298,21 +298,23 @@ class ProjectConfig(DSGBaseModel):  # type: ignore
                     f"data_file={component.data_file} does not exist"
                 )
                 raise InvalidParameter(msg)
-        # Resolve calibration load_shape path (if it's a file path, not a source name)
+        cls._resolve_calibration_path(config, path.parent)
+        return config  # type: ignore
+
+    @classmethod
+    def _resolve_calibration_path(cls, config: Self, base_dir: Path) -> None:
+        """Resolve calibration load_shape path if it's a file path, not a source name."""
         KNOWN_CALIBRATION_SOURCES = {"entsoe", "smard", "ember"}
         if config.calibration.load_shape is not None:
             shape = str(config.calibration.load_shape)
             if shape not in KNOWN_CALIBRATION_SOURCES:
                 resolved = Path(shape)
                 if not resolved.is_absolute():
-                    resolved = (path.parent / resolved).resolve()
+                    resolved = (base_dir / resolved).resolve()
                 if not resolved.exists():
-                    msg = (
-                        f"Calibration load_shape file does not exist: {resolved}"
-                    )
+                    msg = f"Calibration load_shape file does not exist: {resolved}"
                     raise InvalidParameter(msg)
                 config.calibration.load_shape = resolved
-        return config  # type: ignore
 
     def list_model_years(self) -> list[int]:
         """List the model years in the project."""
