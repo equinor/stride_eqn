@@ -145,8 +145,16 @@ class Project:
                 if project._load_calibration_load_shape(scenario, dataset_dir):
                     calibrated_scenarios.add(scenario.name)
 
+        # Load EV load shape (if configured) before dbt runs
+        ev_load_shape_scenarios: set[str] = set()
+        for scenario in config.scenarios:
+            if project._load_ev_load_shape(scenario):
+                ev_load_shape_scenarios.add(scenario.name)
+
         project.compute_energy_projection(
-            use_table_overrides=False, calibrated_scenarios=calibrated_scenarios
+            use_table_overrides=False,
+            calibrated_scenarios=calibrated_scenarios,
+            ev_load_shape_scenarios=ev_load_shape_scenarios,
         )
         project._apply_calculated_table_overrides()
 
@@ -270,6 +278,18 @@ class Project:
                     shutil.copy2(override_path, dest_file)
                     new_overrides[component_name] = dest_file
                 scenario.custom_demand_overrides = new_overrides
+
+            # Archive ev_load_shape (read during _load_ev_load_shape, keep absolute)
+            if scenario.ev_load_shape is not None:
+                dest_dir = scenarios_dir / scenario.name
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                basename = Path(scenario.ev_load_shape).name
+                if basename in used_names:
+                    basename = f"ev_load_shape_{basename}"
+                used_names.add(basename)
+                dest_file = dest_dir / basename
+                shutil.copy2(scenario.ev_load_shape, dest_file)
+                scenario.ev_load_shape = dest_file
 
     def _archive_custom_demand_files(self, inputs_dir: Path) -> None:
         """Archive custom demand component files with absolute paths."""
@@ -655,7 +675,7 @@ class Project:
         return [
             x
             for x in Scenario.model_fields
-            if x not in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides")
+            if x not in ("name", "use_ev_projection", "skip_custom_demand", "custom_demand_overrides", "ev_load_shape")
         ]
 
     def persist(self) -> None:
@@ -744,6 +764,7 @@ class Project:
         self,
         use_table_overrides: bool = True,
         calibrated_scenarios: set[str] | None = None,
+        ev_load_shape_scenarios: set[str] | None = None,
     ) -> None:
         """Compute the energy projection dataset for all scenarios.
 
@@ -757,6 +778,9 @@ class Project:
         calibrated_scenarios
             Set of scenario names that have calibration data loaded. If None,
             calibration is determined from config (backward-compatible).
+        ev_load_shape_scenarios
+            Set of scenario names that have a custom EV load shape loaded. If None,
+            defaults to empty (use transport sector shape).
         """
         logger.info(
             "Computing energy projection with model parameters: "
@@ -784,6 +808,11 @@ class Project:
                 # verification could reference missing DuckDB tables.
                 use_calibration = False
             use_calibration_str = "true" if use_calibration else "false"
+            if ev_load_shape_scenarios is not None:
+                use_ev_load_shape = scenario.name in ev_load_shape_scenarios
+            else:
+                use_ev_load_shape = False
+            use_ev_load_shape_str = "true" if use_ev_load_shape else "false"
             vars_string = (
                 f'{{"scenario": "{scenario.name}", '
                 f'"country": "{self._config.country}", '
@@ -794,7 +823,8 @@ class Project:
                 f'"enable_shoulder_month_smoothing": {str(self._config.model_parameters.enable_shoulder_month_smoothing).lower()}, '
                 f'"shoulder_month_smoothing_factor": {self._config.model_parameters.shoulder_month_smoothing_factor}, '
                 f'"use_ev_projection": {use_ev_str}, '
-                f'"use_calibration": {use_calibration_str}'
+                f'"use_calibration": {use_calibration_str}, '
+                f'"use_ev_load_shape": {use_ev_load_shape_str}'
                 f"{override_str}}}"
             )
             # TODO: May want to run `build` instead of `run` if we add dbt tests.
@@ -1197,6 +1227,74 @@ class Project:
             s for s in self.HISTORICAL_DEMAND_SOURCES
             if (dataset_dir / "profile_data" / f"historical_demand_{s}" / "load_data.parquet").exists()
         ]
+
+    # ---- EV load shape ----
+
+    def _load_ev_load_shape(self, scenario: Scenario) -> bool:
+        """Load an optional EV charging load shape CSV into DuckDB.
+
+        If scenario.ev_load_shape is None or use_ev_projection is False, does nothing.
+        Returns True if the EV load shape was loaded, False otherwise.
+        """
+        if scenario.ev_load_shape is None or not scenario.use_ev_projection:
+            return False
+
+        path = Path(scenario.ev_load_shape)
+        if not path.exists():
+            msg = f"EV load shape file not found: {path}"
+            raise InvalidParameter(msg)
+
+        df = pd.read_csv(path)
+
+        # Validate required column
+        if "value" not in df.columns:
+            msg = (
+                f"EV load shape CSV must have a 'value' column. "
+                f"Found: {list(df.columns)}"
+            )
+            raise InvalidParameter(msg)
+
+        # Handle leap year (8784 → 8760)
+        if len(df) == 8784:
+            # Remove 24 hours for Feb 29 (hours 1417–1440 in a leap year)
+            feb29_start = 24 * (31 + 28)  # Jan (31) + Feb 1-28 = 59 days × 24h = 1416
+            feb29_end = feb29_start + 24
+            df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
+            logger.info(
+                "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
+            )
+
+        if len(df) != 8760:
+            msg = (
+                f"EV load shape CSV must have exactly 8760 rows "
+                f"(got {len(df)})"
+            )
+            raise InvalidParameter(msg)
+
+        # Validate values are numeric and non-negative
+        if not pd.api.types.is_numeric_dtype(df["value"]):
+            msg = "EV load shape 'value' column must be numeric"
+            raise InvalidParameter(msg)
+        if (df["value"] < 0).any():
+            msg = "EV load shape 'value' column must not contain negative values"
+            raise InvalidParameter(msg)
+
+        # Load into DuckDB as a source table accessible by dbt
+        table_name = f"{scenario.name}__ev_load_shape__1_0_0"
+        self._con.sql("CREATE SCHEMA IF NOT EXISTS dsgrid_data")
+        self._con.sql(f"""
+            CREATE OR REPLACE TABLE dsgrid_data.{table_name} AS
+            SELECT
+                ROW_NUMBER() OVER () AS hour_idx,
+                value
+            FROM df
+        """)
+        logger.info(
+            "Loaded EV load shape ({} rows) for scenario '{}'",
+            len(df),
+            scenario.name,
+        )
+        return True
 
     def _build_profile_sql(
         self,

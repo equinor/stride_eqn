@@ -1,7 +1,10 @@
+from pathlib import Path
+
 from duckdb import DuckDBPyConnection, DuckDBPyRelation
 from pandas.testing import assert_frame_equal
 
 from stride import Project
+from stride.models import Scenario
 
 # Conversion factor: 1 TJ = 1000/3.6 MWh
 TJ_TO_MWH = 1000 / 3.6
@@ -1038,3 +1041,136 @@ def make_energy_intensity_pivoted(
         GROUP BY geography, sector, subsector, regression_type
     """
     )
+
+
+# ---- EV load shape tests ----
+
+
+def test_ev_load_shape_model_field() -> None:
+    """ev_load_shape field defaults to None on Scenario."""
+    s = Scenario(name="test1")
+    assert s.ev_load_shape is None
+    assert s.use_ev_projection is False
+
+
+def test_ev_load_shape_model_field_with_path(tmp_path: Path) -> None:
+    """ev_load_shape field accepts a Path."""
+    csv_path = tmp_path / "ev_shape.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 8760) + "\n")
+    s = Scenario(name="test2", ev_load_shape=csv_path, use_ev_projection=True)
+    assert s.ev_load_shape == csv_path
+
+
+def test_ev_load_shape_validation_missing_value_column(tmp_path: Path) -> None:
+    """CSV without 'value' column raises InvalidParameter."""
+    csv_path = tmp_path / "bad_cols.csv"
+    csv_path.write_text("wrong_col\n" + "\n".join(["1.0"] * 8760) + "\n")
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="must have a 'value' column")
+
+
+def test_ev_load_shape_validation_wrong_row_count(tmp_path: Path) -> None:
+    """CSV with wrong row count raises InvalidParameter."""
+    csv_path = tmp_path / "bad_rows.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 100) + "\n")
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="must have exactly 8760 rows")
+
+
+def test_ev_load_shape_validation_negative_values(tmp_path: Path) -> None:
+    """CSV with negative values raises InvalidParameter."""
+    csv_path = tmp_path / "neg.csv"
+    values = ["1.0"] * 8759 + ["-1.0"]
+    csv_path.write_text("value\n" + "\n".join(values) + "\n")
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="must not contain negative values")
+
+
+def test_ev_load_shape_validation_valid(tmp_path: Path) -> None:
+    """Valid 8760-row EV load shape CSV passes validation and loads into DuckDB."""
+    csv_path = tmp_path / "good.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 8760) + "\n")
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None)
+
+
+def test_ev_load_shape_ignored_when_ev_disabled(tmp_path: Path) -> None:
+    """ev_load_shape is ignored when use_ev_projection is False."""
+    import duckdb
+
+    csv_path = tmp_path / "shape.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 8760) + "\n")
+
+    scenario = Scenario(name="test_ignored", ev_load_shape=csv_path, use_ev_projection=False)
+    con = duckdb.connect(":memory:")
+
+    # Minimal project mock
+    project = _make_stub_project(tmp_path, con)
+    result = project._load_ev_load_shape(scenario)
+    assert result is False
+    con.close()
+
+
+def test_ev_load_shape_file_not_found(tmp_path: Path) -> None:
+    """Non-existent ev_load_shape file raises InvalidParameter."""
+    _run_load_ev_load_shape(
+        tmp_path,
+        tmp_path / "nonexistent.csv",
+        expect_error="EV load shape file not found",
+    )
+
+
+def test_ev_load_shape_leap_year_handling(tmp_path: Path) -> None:
+    """8784-row CSV is normalized to 8760 by removing Feb 29."""
+    csv_path = tmp_path / "leap.csv"
+    csv_path.write_text("value\n" + "\n".join(["1.0"] * 8784) + "\n")
+
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error=None)
+
+
+def _run_load_ev_load_shape(
+    tmp_path: Path, csv_path: Path, expect_error: str | None
+) -> None:
+    """Helper to test _load_ev_load_shape validation."""
+    import duckdb
+    from chronify.exceptions import InvalidParameter
+
+    scenario = Scenario(name="test_ev", ev_load_shape=csv_path, use_ev_projection=True)
+    con = duckdb.connect(":memory:")
+    project = _make_stub_project(tmp_path, con)
+
+    if expect_error is not None:
+        import pytest
+
+        with pytest.raises(InvalidParameter, match=expect_error):
+            project._load_ev_load_shape(scenario)
+    else:
+        result = project._load_ev_load_shape(scenario)
+        assert result is True
+        # Verify table was created with correct row count
+        row = con.sql(
+            "SELECT COUNT(*) FROM dsgrid_data.test_ev__ev_load_shape__1_0_0"
+        ).fetchone()
+        assert row is not None and row[0] == 8760
+    con.close()
+
+
+def _make_stub_project(tmp_path: Path, con: DuckDBPyConnection) -> Project:
+    """Create a minimal Project instance for unit testing _load_ev_load_shape."""
+    from stride.models import ProjectConfig
+
+    config = ProjectConfig(
+        project_id="stub",
+        creator="test",
+        description="stub",
+        country="country_1",
+        start_year=2025,
+        end_year=2050,
+        weather_year=2018,
+    )
+    project = object.__new__(Project)
+    project._config = config
+    project._path = tmp_path
+    project._con = con
+    project._palette = None
+    return project

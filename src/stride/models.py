@@ -131,6 +131,15 @@ class Scenario(DSGBaseModel):  # type: ignore
         default=None,
         description="Optional path to a user-provided vehicle_per_capita_regressions table",
     )
+    ev_load_shape: Path | None = Field(
+        default=None,
+        description=(
+            "Optional path to an 8760-row CSV with a 'value' column defining "
+            "the EV charging hourly shape. When provided (and use_ev_projection=true), "
+            "replaces the Transportation sector shape for distributing EV annual energy. "
+            "Values are auto-normalized."
+        ),
+    )
     skip_custom_demand: bool = Field(
         default=False,
         description="When True, skip custom demand component injection for this scenario.",
