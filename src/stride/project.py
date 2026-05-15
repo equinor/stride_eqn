@@ -1230,6 +1230,52 @@ class Project:
 
     # ---- EV load shape ----
 
+    @staticmethod
+    def _normalize_ev_load_shape_df(
+        df: pd.DataFrame, weather_year: int
+    ) -> pd.DataFrame:
+        """Normalize an EV load shape DataFrame to exactly 8760 rows.
+
+        Handles optional ``timestamp`` column (for year validation, sorting,
+        and calendar-aware Feb 29 removal) and positional leap-year trimming
+        when no timestamp is present.
+        """
+        if "timestamp" in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            csv_year = df["timestamp"].dt.year.iloc[0]
+            if csv_year != weather_year:
+                msg = (
+                    f"EV load shape CSV year ({csv_year}) != weather_year "
+                    f"({weather_year}). "
+                    f"Timestamps must match weather_year for correct calendar alignment."
+                )
+                raise InvalidParameter(msg)
+            df = df.sort_values("timestamp").reset_index(drop=True)
+            if calendar.isleap(weather_year):
+                df = df[
+                    ~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))
+                ]
+                df = df.reset_index(drop=True)
+            df = df.drop(columns=["timestamp"])
+        elif len(df) == 8784:
+            if calendar.isleap(weather_year):
+                feb29_start = 24 * (31 + 28)
+                feb29_end = feb29_start + 24
+                df = pd.concat(
+                    [df.iloc[:feb29_start], df.iloc[feb29_end:]]
+                ).reset_index(drop=True)
+                logger.info(
+                    "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
+                )
+            else:
+                msg = (
+                    f"EV load shape CSV has 8784 rows but weather_year "
+                    f"{weather_year} is not a leap year. "
+                    f"Expected exactly 8760 rows."
+                )
+                raise InvalidParameter(msg)
+        return df
+
     def _load_ev_load_shape(self, scenario: Scenario) -> bool:
         """Load an optional EV charging load shape CSV into DuckDB.
 
@@ -1258,43 +1304,7 @@ class Project:
             )
             raise InvalidParameter(msg)
 
-        # If timestamp column is present, use it for validation and sorting
-        has_timestamp = "timestamp" in df.columns
-        if has_timestamp:
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            csv_year = df["timestamp"].dt.year.iloc[0]
-            if csv_year != self._config.weather_year:
-                msg = (
-                    f"EV load shape CSV year ({csv_year}) != weather_year "
-                    f"({self._config.weather_year}). "
-                    f"Timestamps must match weather_year for correct calendar alignment."
-                )
-                raise InvalidParameter(msg)
-            # Sort by timestamp to guarantee correct calendar order
-            df = df.sort_values("timestamp").reset_index(drop=True)
-            # Remove Feb 29 via date filtering (more robust than positional)
-            if calendar.isleap(self._config.weather_year):
-                df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
-                df = df.reset_index(drop=True)
-            # Drop timestamp — downstream uses positional hour_idx
-            df = df.drop(columns=["timestamp"])
-        else:
-            # No timestamp: handle leap year positionally (8784 → 8760)
-            if len(df) == 8784:
-                if calendar.isleap(self._config.weather_year):
-                    feb29_start = 24 * (31 + 28)  # 59 days × 24h = 1416
-                    feb29_end = feb29_start + 24
-                    df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
-                    logger.info(
-                        "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
-                    )
-                else:
-                    msg = (
-                        f"EV load shape CSV has 8784 rows but weather_year "
-                        f"{self._config.weather_year} is not a leap year. "
-                        f"Expected exactly 8760 rows."
-                    )
-                    raise InvalidParameter(msg)
+        df = self._normalize_ev_load_shape_df(df, self._config.weather_year)
 
         if len(df) != 8760:
             msg = (
