@@ -949,7 +949,7 @@ class Project:
         For each custom demand component:
         1. Load annual MWh data from CSV/Parquet
         2. Resolve the load profile (flat only for now; sector/enduse reference in CP3)
-        3. Distribute annual energy into 8760 hours using the profile
+        3. Distribute annual energy into hourly rows using the profile
         4. INSERT rows into {scenario}.energy_projection
 
         Uses defensive DELETE before insert to ensure idempotency.
@@ -1110,23 +1110,11 @@ class Project:
             )
             raise InvalidParameter(msg)
 
-        # Normalize to 8760 rows: remove Feb 29 for leap years.
-        # Stride load shapes always use 8760 hours regardless of leap year,
-        # so calibration data must match. The <0.3% energy difference from
-        # excluding one day is absorbed by the annual rescaling step.
-        if calendar.isleap(self._config.weather_year):
-            before = len(df)
-            df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
-            if len(df) < before:
-                logger.info(
-                    "Removed {} Feb 29 rows from calibration data (leap year normalization)",
-                    before - len(df),
-                )
-
-        expected_rows = 8760
+        # Validate row count: 8784 for leap years, 8760 otherwise.
+        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
         if len(df) != expected_rows:
             msg = (
-                f"Calibration data must have {expected_rows} rows after leap-day removal, "
+                f"Calibration data must have {expected_rows} rows, "
                 f"got {len(df)} for weather_year {self._config.weather_year}"
             )
             raise InvalidParameter(msg)
@@ -1182,15 +1170,11 @@ class Project:
             )
             raise InvalidParameter(msg)
 
-        # Filter to country + weather_year
-        df = pd.read_parquet(parquet_path)
-        df = df[
-            (df["geography"] == country)
-            & (df["timestamp"].dt.year == year)
-        ]
-
-        if len(df) > 0:
-            return df  # type: ignore[no-any-return]
+        result = self._resolve_historical_demand_static(
+            source=source, dataset_dir=dataset_dir, country=country, year=year
+        )
+        if result is not None:
+            return result
 
         # Data not available — find alternatives and fall back
         alternatives = self._find_alternative_sources(dataset_dir, country, year, exclude=source)
@@ -1205,20 +1189,92 @@ class Project:
         logger.warning(msg)
         return None
 
+    @staticmethod
+    def _resolve_historical_demand_static(
+        source: str, dataset_dir: Path, country: str, year: int
+    ) -> pd.DataFrame | None:
+        """Core logic for resolving historical demand (static for testability).
+
+        Supports two parquet formats:
+        - New (v2): date components (weather_year, month, day, hour)
+        - Legacy: UTC timestamp column
+
+        Returns DataFrame with 'timestamp' and 'total_load_mwh' columns, or None.
+        """
+        table_dir = dataset_dir / "profile_data" / f"historical_demand_{source}"
+        parquet_path = table_dir / "load_data.parquet"
+
+        if not parquet_path.exists():
+            return None
+
+        df = pd.read_parquet(parquet_path)
+
+        # New format: date components (weather_year, month, day, hour)
+        if "weather_year" in df.columns:
+            df = df[(df["geography"] == country) & (df["weather_year"] == year)]
+            if len(df) == 0:
+                return None
+
+            # Resolve timezone from countries.csv in the dataset directory
+            countries_csv = table_dir / "dimensions" / "countries.csv"
+            tz = Project._read_country_timezone(countries_csv, country)
+
+            # Construct TIMESTAMPTZ from components
+            df = df.copy()
+            df["timestamp"] = pd.to_datetime(
+                df[["weather_year", "month", "day", "hour"]].rename(
+                    columns={"weather_year": "year"}
+                )
+            ).dt.tz_localize(tz)
+            return df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
+
+        # Legacy format: timestamp column (backward compatibility)
+        df = df[(df["geography"] == country) & (df["timestamp"].dt.year == year)]
+        if len(df) > 0:
+            return df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
+        return None
+
+    @staticmethod
+    def _read_country_timezone(countries_csv: Path, country: str) -> str:
+        """Read the standard-time timezone for a country from dimensions/countries.csv."""
+        import csv
+
+        with open(countries_csv) as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row["id"] == country:
+                    return row["time_zone"]
+        raise InvalidParameter(
+            f"Country '{country}' not found in {countries_csv}"
+        )
+
     def _find_alternative_sources(
         self, dataset_dir: Path, country: str, year: int, exclude: str
     ) -> list[str]:
         """Scan other historical demand tables for (country, year) availability."""
+        return self._find_alternative_sources_static(dataset_dir, country, year, exclude)
+
+    @staticmethod
+    def _find_alternative_sources_static(
+        dataset_dir: Path, country: str, year: int, exclude: str
+    ) -> list[str]:
+        """Core logic for finding alternative sources (static for testability)."""
         alternatives = []
-        for source_name in self.HISTORICAL_DEMAND_SOURCES:
+        for source_name in Project.HISTORICAL_DEMAND_SOURCES:
             if source_name == exclude:
                 continue
             path = dataset_dir / "profile_data" / f"historical_demand_{source_name}" / "load_data.parquet"
             if not path.exists():
                 continue
-            df = pd.read_parquet(path, columns=["geography", "timestamp"])
-            if ((df["geography"] == country) & (df["timestamp"].dt.year == year)).any():
-                alternatives.append(source_name)
+            df = pd.read_parquet(path)
+            # New format: date components
+            if "weather_year" in df.columns:
+                if ((df["geography"] == country) & (df["weather_year"] == year)).any():
+                    alternatives.append(source_name)
+            # Legacy format: timestamp column
+            elif "timestamp" in df.columns:
+                if ((df["geography"] == country) & (df["timestamp"].dt.year == year)).any():
+                    alternatives.append(source_name)
         return alternatives
 
     def _list_available_sources(self, dataset_dir: Path) -> list[str]:
@@ -1234,12 +1290,12 @@ class Project:
     def _normalize_ev_load_shape_df(
         df: pd.DataFrame, weather_year: int
     ) -> pd.DataFrame:
-        """Normalize an EV load shape DataFrame to exactly 8760 rows.
+        """Normalize an EV load shape DataFrame to the expected row count.
 
-        Handles optional ``timestamp`` column (for year validation, sorting,
-        and calendar-aware Feb 29 removal) and positional leap-year trimming
-        when no timestamp is present.
+        Expected rows: 8784 for leap years, 8760 otherwise.
+        Handles optional ``timestamp`` column for year validation and sorting.
         """
+        expected_rows = 8784 if calendar.isleap(weather_year) else 8760
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             csv_year = df["timestamp"].dt.year.iloc[0]
@@ -1251,29 +1307,14 @@ class Project:
                 )
                 raise InvalidParameter(msg)
             df = df.sort_values("timestamp").reset_index(drop=True)
-            if calendar.isleap(weather_year):
-                df = df[
-                    ~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))
-                ]
-                df = df.reset_index(drop=True)
             df = df.drop(columns=["timestamp"])
-        elif len(df) == 8784:
-            if calendar.isleap(weather_year):
-                feb29_start = 24 * (31 + 28)
-                feb29_end = feb29_start + 24
-                df = pd.concat(
-                    [df.iloc[:feb29_start], df.iloc[feb29_end:]]
-                ).reset_index(drop=True)
-                logger.info(
-                    "Removed 24 Feb 29 rows from EV load shape (leap year normalization)"
-                )
-            else:
-                msg = (
-                    f"EV load shape CSV has 8784 rows but weather_year "
-                    f"{weather_year} is not a leap year. "
-                    f"Expected exactly 8760 rows."
-                )
-                raise InvalidParameter(msg)
+        elif len(df) == 8784 and not calendar.isleap(weather_year):
+            msg = (
+                f"EV load shape CSV has 8784 rows but weather_year "
+                f"{weather_year} is not a leap year. "
+                f"Expected exactly {expected_rows} rows."
+            )
+            raise InvalidParameter(msg)
         return df
 
     def _load_ev_load_shape(self, scenario: Scenario) -> bool:
@@ -1282,9 +1323,10 @@ class Project:
         If scenario.ev_load_shape is None or use_ev_projection is False, does nothing.
         Returns True if the EV load shape was loaded, False otherwise.
 
-        The CSV must have a 'value' column (8760 rows). If a 'timestamp' column is
-        also present, it is used to validate year alignment with weather_year and to
-        sort rows into correct calendar order before positional assignment.
+        The CSV must have a 'value' column (8760 rows, or 8784 for leap years).
+        If a 'timestamp' column is also present, it is used to validate year
+        alignment with weather_year and to sort rows into correct calendar order
+        before positional assignment.
         """
         if scenario.ev_load_shape is None or not scenario.use_ev_projection:
             return False
@@ -1296,19 +1338,15 @@ class Project:
 
         df = pd.read_csv(path)
 
-        # Validate required column
-        if "value" not in df.columns:
-            msg = (
-                f"EV load shape CSV must have a 'value' column. "
-                f"Found: {list(df.columns)}"
-            )
-            raise InvalidParameter(msg)
+        # Resolve the value column: accept any single numeric column if 'value' is absent
+        df = _resolve_value_column(df, "EV load shape")
 
         df = self._normalize_ev_load_shape_df(df, self._config.weather_year)
 
-        if len(df) != 8760:
+        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
+        if len(df) != expected_rows:
             msg = (
-                f"EV load shape CSV must have exactly 8760 rows "
+                f"EV load shape CSV must have exactly {expected_rows} rows "
                 f"(got {len(df)})"
             )
             raise InvalidParameter(msg)
@@ -1377,7 +1415,7 @@ class Project:
                 component, scenario_name, staging_table, model_years_str, ref_enduse
             )
         else:
-            # Treat as a file path to an 8760 hourly profile CSV/Parquet
+            # Treat as a file path to an hourly profile CSV/Parquet
             profile_path = Path(profile)
             if not profile_path.is_absolute():
                 profile_path = self._path / profile_path
@@ -1399,6 +1437,7 @@ class Project:
         model_years_str: str,
     ) -> str:
         """Build SQL for flat (uniform) hourly distribution."""
+        hours_in_year = 8784 if calendar.isleap(self._config.weather_year) else 8760
         return f"""
             WITH annual_data AS (
                 SELECT model_year, value AS annual_mwh
@@ -1418,7 +1457,7 @@ class Project:
                 '{self._config.country}' AS geography,
                 '{component.sector}' AS sector,
                 '{component.metric}' AS metric,
-                ad.annual_mwh / 8760.0 AS value,
+                ad.annual_mwh / {hours_in_year}.0 AS value,
                 '{scenario_name}' AS scenario
             FROM hourly_timestamps ht
             JOIN annual_data ad ON ht.model_year = ad.model_year
@@ -1566,11 +1605,13 @@ class Project:
     ) -> str:
         """Build SQL using a user-provided hourly profile CSV.
 
-        The profile file must have a `value` column with 8760 rows (one per hour).
+        The profile file must have a `value` column with 8760 rows (one per hour),
+        or 8784 rows for leap-year weather years.
         If a `timestamp` column is also present, it is used to validate year alignment
         with weather_year and to sort rows into correct calendar order.
         The profile is normalized so that annual totals match the input data.
         """
+        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
         profile_table = (
             f"stride.custom__{component.name}__{scenario_name}__profile"
         )
@@ -1578,13 +1619,8 @@ class Project:
         # Read into pandas first to handle optional timestamp column
         df = pd.read_csv(profile_path)
 
-        # Validate the profile has a value column
-        if "value" not in df.columns:
-            msg = (
-                f"Custom profile file must have a 'value' column. "
-                f"Found: {list(df.columns)}"
-            )
-            raise InvalidParameter(msg)
+        # Resolve the value column: accept any single numeric column if 'value' is absent
+        df = _resolve_value_column(df, f"Custom profile '{component.name}'")
 
         # If timestamp column is present, use it for validation and sorting
         has_timestamp = "timestamp" in df.columns
@@ -1600,42 +1636,21 @@ class Project:
                 raise InvalidParameter(msg)
             # Sort by timestamp to guarantee correct calendar order
             df = df.sort_values("timestamp").reset_index(drop=True)
-            # Remove Feb 29 via date filtering
-            if calendar.isleap(self._config.weather_year):
-                before = len(df)
-                df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
-                df = df.reset_index(drop=True)
-                if len(df) < before:
-                    logger.info(
-                        "Removed {} Feb 29 rows from custom profile '{}' (leap year normalization)",
-                        before - len(df),
-                        component.name,
-                    )
             # Drop timestamp — downstream uses positional hour_idx
             df = df.drop(columns=["timestamp"])
         else:
-            # No timestamp: handle leap year positionally (8784 → 8760)
-            row_count = len(df)
-            if row_count == 8784:
-                if calendar.isleap(self._config.weather_year):
-                    feb29_start = 24 * (31 + 28)  # 59 days × 24h = 1416
-                    feb29_end = feb29_start + 24
-                    df = pd.concat([df.iloc[:feb29_start], df.iloc[feb29_end:]]).reset_index(drop=True)
-                    logger.info(
-                        "Removed 24 Feb 29 rows from custom profile '{}' (leap year normalization)",
-                        component.name,
-                    )
-                else:
-                    msg = (
-                        f"Custom profile file for '{component.name}' has 8784 rows but "
-                        f"weather_year {self._config.weather_year} is not a leap year. "
-                        f"Expected exactly 8760 rows."
-                    )
-                    raise InvalidParameter(msg)
+            # No timestamp: validate row count
+            if len(df) == 8784 and not calendar.isleap(self._config.weather_year):
+                msg = (
+                    f"Custom profile file for '{component.name}' has 8784 rows but "
+                    f"weather_year {self._config.weather_year} is not a leap year. "
+                    f"Expected exactly {expected_rows} rows."
+                )
+                raise InvalidParameter(msg)
 
-        if len(df) != 8760:
+        if len(df) != expected_rows:
             msg = (
-                f"Custom profile file must have exactly 8760 rows "
+                f"Custom profile file must have exactly {expected_rows} rows "
                 f"(got {len(df)})"
             )
             raise InvalidParameter(msg)
@@ -1899,6 +1914,43 @@ class Project:
             [schema, name],
         ).fetchone()
         return result is not None and result[0] > 0
+
+
+# Column names that are never the "value" column in load shape CSVs
+_NON_VALUE_COLUMNS = {"timestamp", "hour_idx", "model_year", "geography", "sector", "enduse"}
+
+
+def _resolve_value_column(df: pd.DataFrame, context: str) -> pd.DataFrame:
+    """Ensure df has a 'value' column, renaming a single numeric column if needed.
+
+    If 'value' already exists, returns df unchanged.
+    Otherwise, looks for exactly one numeric column (excluding known metadata columns)
+    and renames it to 'value'. Raises InvalidParameter if ambiguous or none found.
+    """
+    if "value" in df.columns:
+        return df
+
+    numeric_cols = [
+        c for c in df.columns
+        if c.lower() not in _NON_VALUE_COLUMNS and pd.api.types.is_numeric_dtype(df[c])
+    ]
+    if len(numeric_cols) == 1:
+        logger.info(
+            "{} CSV: renaming column '{}' → 'value'", context, numeric_cols[0]
+        )
+        return df.rename(columns={numeric_cols[0]: "value"})
+
+    if len(numeric_cols) == 0:
+        msg = (
+            f"{context} CSV has no numeric column to use as 'value'. "
+            f"Found columns: {list(df.columns)}"
+        )
+    else:
+        msg = (
+            f"{context} CSV has multiple numeric columns: {numeric_cols}. "
+            f"Please rename the desired column to 'value' or keep only one."
+        )
+    raise InvalidParameter(msg)
 
 
 def _parse_bool_env(name: str, default: bool) -> bool:

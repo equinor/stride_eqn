@@ -1123,7 +1123,7 @@ def test_ev_load_shape_file_not_found(tmp_path: Path) -> None:
 
 
 def test_ev_load_shape_leap_year_handling(tmp_path: Path) -> None:
-    """8784-row CSV is normalized to 8760 when weather_year is a leap year."""
+    """8784-row CSV is accepted when weather_year is a leap year."""
     csv_path = tmp_path / "leap.csv"
     csv_path.write_text("value\n" + "\n".join(["1.0"] * 8784) + "\n")
 
@@ -1163,10 +1163,13 @@ def _run_load_ev_load_shape(
         result = project._load_ev_load_shape(scenario)
         assert result is True
         # Verify table was created with correct row count
+        import calendar
+
+        expected_rows = 8784 if calendar.isleap(weather_year) else 8760
         row = con.sql(
             "SELECT COUNT(*) FROM dsgrid_data.test_ev__ev_load_shape__1_0_0"
         ).fetchone()
-        assert row is not None and row[0] == 8760
+        assert row is not None and row[0] == expected_rows
     con.close()
 
 
