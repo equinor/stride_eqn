@@ -28,8 +28,8 @@ class CustomDemandComponent(DSGBaseModel):  # type: ignore
 
     A custom demand component is a user-defined electricity load (e.g., heat pumps,
     data centers) that is injected into the energy projection after dbt computation.
-    Annual MWh values are distributed into 8760 hourly rows using the specified
-    load profile.
+    Annual MWh values are distributed into hourly rows (8760, or 8784 for leap
+    years) using the specified load profile.
     """
 
     name: str = Field(
@@ -45,7 +45,8 @@ class CustomDemandComponent(DSGBaseModel):  # type: ignore
         default="flat",
         description=(
             "How to distribute annual energy into hours. Options: "
-            "'flat', 'sector:<name>', 'enduse:<name>', or a file path to an 8760 CSV"
+            "'flat', 'sector:<name>', 'enduse:<name>', or a file path to an "
+            "8760/8784-row CSV"
         ),
     )
     metric: str = Field(
@@ -68,7 +69,8 @@ class CalibrationConfig(DSGBaseModel):  # type: ignore
     load_shape: Path | str | None = Field(
         default=None,
         description=(
-            "Path to 8760h CSV with columns (timestamp, total_load_mwh), "
+            "Path to CSV with columns (timestamp, total_load_mwh) — "
+            "8760 rows for non-leap years, 8784 for leap years — "
             "or a source name ('entsoe', 'smard', etc.) to auto-resolve from stride-data, "
             "or null/omitted to disable calibration."
         ),
@@ -134,10 +136,11 @@ class Scenario(DSGBaseModel):  # type: ignore
     ev_load_shape: Path | None = Field(
         default=None,
         description=(
-            "Optional path to an 8760-row CSV with a 'value' column defining "
-            "the EV charging hourly shape. When provided (and use_ev_projection=true), "
-            "replaces the Transportation sector shape for distributing EV annual energy. "
-            "Values are auto-normalized."
+            "Optional path to a CSV with a numeric column (named 'value', or any "
+            "single numeric column which will be auto-detected). Must have 8760 rows "
+            "(or 8784 for leap years). When provided (and use_ev_projection=true), "
+            "replaces the Transportation sector shape for distributing EV annual "
+            "energy. Values are auto-normalized."
         ),
     )
     skip_custom_demand: bool = Field(

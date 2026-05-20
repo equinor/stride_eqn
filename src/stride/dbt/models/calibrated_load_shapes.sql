@@ -89,16 +89,28 @@ raw_distributed AS (
 ),
 
 stride_annual AS (
-    -- STRIDE's annual demand per sector (summed from load_shapes_expanded).
-    -- These are already scaled by Stage 3, so Σ_h sector_value = E_annual_regression
-    -- by construction.
+    -- STRIDE's regression-based annual demand per sector (in MWh).
+    -- Commercial, Industrial, Transportation: from energy intensity × GDP regression (TJ→MWh)
+    -- When EV projection is enabled, exclude Transportation/Road (added separately downstream)
     SELECT
-        model_year,
         geography,
+        model_year,
         sector,
-        SUM(sector_value) AS annual_total
-    FROM stride_sector_hourly
-    GROUP BY model_year, geography, sector
+        SUM(value) * 277.777777778 AS annual_total
+    FROM {{ table_ref('energy_intensity_com_ind_tra_gdp_applied_regression') }}
+    WHERE NOT (sector = 'Transportation' AND subsector = 'Road' AND {{ var("use_ev_projection", false) }})
+    GROUP BY geography, model_year, sector
+
+    UNION ALL
+
+    -- Residential: from energy intensity × HDI × population regression (TJ→MWh)
+    SELECT
+        geography,
+        model_year,
+        sector,
+        SUM(value) * 277.777777778 AS annual_total
+    FROM {{ table_ref('energy_intensity_res_hdi_population_applied_regression') }}
+    GROUP BY geography, model_year, sector
 ),
 
 scale_factors AS (

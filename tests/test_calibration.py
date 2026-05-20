@@ -120,8 +120,7 @@ def test_calibration_csv_leap_year_mismatch(tmp_path: Path) -> None:
     # Create 8784-row CSV for 2020 (leap year)
     csv_path = _generate_synthetic_calibration_csv(tmp_path, year=2020)
 
-    # weather_year=2019 is not a leap year, so no Feb 29 removal happens.
-    # The 8784-row CSV doesn't match the expected 8760 rows.
+    # weather_year=2019 is not a leap year, expects 8760 rows but gets 8784.
     with pytest.raises(InvalidParameter, match="must have 8760 rows"):
         _validate_calibration_csv(csv_path, weather_year=2019)
 
@@ -277,7 +276,7 @@ def _validate_calibration_csv(csv_path: Path, weather_year: int) -> None:
     """Validate a calibration CSV file (standalone, without a full Project).
 
     This replicates the validation logic from Project._load_calibration_load_shape
-    for unit testing purposes: normalize to 8760 by removing Feb 29 for leap years.
+    for unit testing purposes. Expects 8784 rows for leap years, 8760 otherwise.
     """
     df = pd.read_csv(csv_path, parse_dates=["timestamp"])
 
@@ -291,16 +290,12 @@ def _validate_calibration_csv(csv_path: Path, weather_year: int) -> None:
         )
         raise InvalidParameter(msg)
 
-    # Normalize to 8760: remove Feb 29 for leap years (matches production logic)
-    if calendar.isleap(weather_year):
-        df = df[~((df["timestamp"].dt.month == 2) & (df["timestamp"].dt.day == 29))]
-
-    expected_rows = 8760
+    # Validate row count: 8784 for leap years, 8760 otherwise
+    expected_rows = 8784 if calendar.isleap(weather_year) else 8760
     if len(df) != expected_rows:
         msg = (
-            f"Calibration CSV must have {expected_rows} rows for weather_year "
-            f"{weather_year} after leap-day normalization, "
-            f"got {len(df)}"
+            f"Calibration data must have {expected_rows} rows, "
+            f"got {len(df)} for weather_year {weather_year}"
         )
         raise InvalidParameter(msg)
 

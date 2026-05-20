@@ -1279,7 +1279,7 @@ $ stride custom-demand add my_project --name heat_pumps --sector "Heat Pumps" --
     type=str,
     default="flat",
     show_default=True,
-    help="Profile: 'flat', 'sector:<name>', 'enduse:<name>', or path to 8760 CSV",
+    help="Profile: 'flat', 'sector:<name>', 'enduse:<name>', or path to 8760/8784 CSV",
 )
 @click.option(
     "--metric",

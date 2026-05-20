@@ -1064,11 +1064,13 @@ def test_ev_load_shape_model_field_with_path(tmp_path: Path) -> None:
 
 
 def test_ev_load_shape_validation_missing_value_column(tmp_path: Path) -> None:
-    """CSV without 'value' column raises InvalidParameter."""
+    """CSV with multiple numeric columns (ambiguous) raises InvalidParameter."""
     csv_path = tmp_path / "bad_cols.csv"
-    csv_path.write_text("wrong_col\n" + "\n".join(["1.0"] * 8760) + "\n")
+    csv_path.write_text(
+        "col_a,col_b\n" + "\n".join(["1.0,2.0"] * 8760) + "\n"
+    )
 
-    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="must have a 'value' column")
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="multiple numeric columns")
 
 
 def test_ev_load_shape_validation_wrong_row_count(tmp_path: Path) -> None:
@@ -1123,7 +1125,7 @@ def test_ev_load_shape_file_not_found(tmp_path: Path) -> None:
 
 
 def test_ev_load_shape_leap_year_handling(tmp_path: Path) -> None:
-    """8784-row CSV is normalized to 8760 when weather_year is a leap year."""
+    """8784-row CSV is accepted when weather_year is a leap year."""
     csv_path = tmp_path / "leap.csv"
     csv_path.write_text("value\n" + "\n".join(["1.0"] * 8784) + "\n")
 
@@ -1163,10 +1165,13 @@ def _run_load_ev_load_shape(
         result = project._load_ev_load_shape(scenario)
         assert result is True
         # Verify table was created with correct row count
+        import calendar
+
+        expected_rows = 8784 if calendar.isleap(weather_year) else 8760
         row = con.sql(
             "SELECT COUNT(*) FROM dsgrid_data.test_ev__ev_load_shape__1_0_0"
         ).fetchone()
-        assert row is not None and row[0] == 8760
+        assert row is not None and row[0] == expected_rows
     con.close()
 
 
