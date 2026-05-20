@@ -1064,11 +1064,13 @@ def test_ev_load_shape_model_field_with_path(tmp_path: Path) -> None:
 
 
 def test_ev_load_shape_validation_missing_value_column(tmp_path: Path) -> None:
-    """CSV without 'value' column raises InvalidParameter."""
+    """CSV with multiple numeric columns (ambiguous) raises InvalidParameter."""
     csv_path = tmp_path / "bad_cols.csv"
-    csv_path.write_text("wrong_col\n" + "\n".join(["1.0"] * 8760) + "\n")
+    csv_path.write_text(
+        "col_a,col_b\n" + "\n".join(["1.0,2.0"] * 8760) + "\n"
+    )
 
-    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="must have a 'value' column")
+    _run_load_ev_load_shape(tmp_path, csv_path, expect_error="multiple numeric columns")
 
 
 def test_ev_load_shape_validation_wrong_row_count(tmp_path: Path) -> None:

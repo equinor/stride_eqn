@@ -136,10 +136,11 @@ class Scenario(DSGBaseModel):  # type: ignore
     ev_load_shape: Path | None = Field(
         default=None,
         description=(
-            "Optional path to a CSV with a 'value' column (8760 rows, or 8784 "
-            "for leap years) defining the EV charging hourly shape. When provided "
-            "(and use_ev_projection=true), replaces the Transportation sector shape "
-            "for distributing EV annual energy. Values are auto-normalized."
+            "Optional path to a CSV with a numeric column (named 'value', or any "
+            "single numeric column which will be auto-detected). Must have 8760 rows "
+            "(or 8784 for leap years). When provided (and use_ev_projection=true), "
+            "replaces the Transportation sector shape for distributing EV annual "
+            "energy. Values are auto-normalized."
         ),
     )
     skip_custom_demand: bool = Field(

@@ -1231,7 +1231,8 @@ class Project:
         # Legacy format: timestamp column (backward compatibility)
         df = df[(df["geography"] == country) & (df["timestamp"].dt.year == year)]
         if len(df) > 0:
-            return df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
+            result: pd.DataFrame = df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
+            return result
         return None
 
     @staticmethod
@@ -1239,14 +1240,20 @@ class Project:
         """Read the standard-time timezone for a country from dimensions/countries.csv."""
         import csv
 
+        if not countries_csv.exists():
+            msg = (
+                f"Countries dimension file not found: {countries_csv}. "
+                f"Expected a CSV with 'id' and 'time_zone' columns."
+            )
+            raise InvalidParameter(msg)
+
         with open(countries_csv) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 if row["id"] == country:
                     return row["time_zone"]
-        raise InvalidParameter(
-            f"Country '{country}' not found in {countries_csv}"
-        )
+        msg = f"Country '{country}' not found in {countries_csv}"
+        raise InvalidParameter(msg)
 
     def _find_alternative_sources(
         self, dataset_dir: Path, country: str, year: int, exclude: str
@@ -1323,7 +1330,9 @@ class Project:
         If scenario.ev_load_shape is None or use_ev_projection is False, does nothing.
         Returns True if the EV load shape was loaded, False otherwise.
 
-        The CSV must have a 'value' column (8760 rows, or 8784 for leap years).
+        The CSV must have a numeric column (named 'value', or any single numeric
+        column which will be auto-detected). Expected row count: 8760, or 8784
+        for leap-year weather years.
         If a 'timestamp' column is also present, it is used to validate year
         alignment with weather_year and to sort rows into correct calendar order
         before positional assignment.
@@ -1605,7 +1614,8 @@ class Project:
     ) -> str:
         """Build SQL using a user-provided hourly profile CSV.
 
-        The profile file must have a `value` column with 8760 rows (one per hour),
+        The profile file must have a numeric column (named 'value', or any single
+        numeric column which will be auto-detected) with 8760 rows (one per hour),
         or 8784 rows for leap-year weather years.
         If a `timestamp` column is also present, it is used to validate year alignment
         with weather_year and to sort rows into correct calendar order.

@@ -24,7 +24,6 @@ def _create_components_parquet(
     path: Path,
     country: str = "Germany",
     year: int = 2019,
-    tz_offset: int = 1,
 ) -> Path:
     """Create a date-components format parquet (v2 format).
 
@@ -143,6 +142,12 @@ class TestReadCountryTimezone:
         csv_path = _create_countries_csv(tmp_path, [("Germany", "Etc/GMT-1")])
         with pytest.raises(InvalidParameter, match="not found"):
             Project._read_country_timezone(csv_path, "Atlantis")
+
+    def test_raises_for_missing_file(self, tmp_path: Path) -> None:
+        """Raises InvalidParameter if countries.csv does not exist."""
+        missing_path = tmp_path / "dimensions" / "countries.csv"
+        with pytest.raises(InvalidParameter, match="not found"):
+            Project._read_country_timezone(missing_path, "Germany")
 
 
 # ---- Tests for _resolve_historical_demand (v2 components path) ----
