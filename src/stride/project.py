@@ -137,14 +137,6 @@ class Project:
         project.copy_dbt_template()
         project._create_views_for_unchanged_tables(unchanged_tables_by_scenario)
 
-        # Load calibration load shape (if configured) before dbt runs
-        # Track which scenarios actually got calibration data loaded
-        calibrated_scenarios: set[str] = set()
-        if config.calibration.load_shape is not None:
-            for scenario in config.scenarios:
-                if project._load_calibration_load_shape(scenario, dataset_dir):
-                    calibrated_scenarios.add(scenario.name)
-
         # Load EV load shape (if configured) before dbt runs
         ev_load_shape_scenarios: set[str] = set()
         for scenario in config.scenarios:
@@ -153,7 +145,6 @@ class Project:
 
         project.compute_energy_projection(
             use_table_overrides=False,
-            calibrated_scenarios=calibrated_scenarios,
             ev_load_shape_scenarios=ev_load_shape_scenarios,
         )
         project._apply_calculated_table_overrides()
@@ -763,7 +754,6 @@ class Project:
     def compute_energy_projection(
         self,
         use_table_overrides: bool = True,
-        calibrated_scenarios: set[str] | None = None,
         ev_load_shape_scenarios: set[str] | None = None,
     ) -> None:
         """Compute the energy projection dataset for all scenarios.
@@ -775,9 +765,6 @@ class Project:
         use_table_overrides
             If True, use compute results based on the table overrides specified in the project
             config.
-        calibrated_scenarios
-            Set of scenario names that have calibration data loaded. If None,
-            calibration is determined from config (backward-compatible).
         ev_load_shape_scenarios
             Set of scenario names that have a custom EV load shape loaded. If None,
             defaults to empty (use transport sector shape).
@@ -799,15 +786,6 @@ class Project:
             override_strings = [f'"{x}_override": "{x}_override"' for x in overrides]
             override_str = ", " + ", ".join(override_strings) if override_strings else ""
             use_ev_str = "true" if scenario.use_ev_projection else "false"
-            if calibrated_scenarios is not None:
-                use_calibration = scenario.name in calibrated_scenarios
-            else:
-                # When calibrated_scenarios is not provided (e.g., called outside
-                # create()), default to disabled. Only create() tracks which scenarios
-                # successfully loaded calibration data; enabling here without that
-                # verification could reference missing DuckDB tables.
-                use_calibration = False
-            use_calibration_str = "true" if use_calibration else "false"
             if ev_load_shape_scenarios is not None:
                 use_ev_load_shape = scenario.name in ev_load_shape_scenarios
             else:
@@ -823,7 +801,6 @@ class Project:
                 f'"enable_shoulder_month_smoothing": {str(self._config.model_parameters.enable_shoulder_month_smoothing).lower()}, '
                 f'"shoulder_month_smoothing_factor": {self._config.model_parameters.shoulder_month_smoothing_factor}, '
                 f'"use_ev_projection": {use_ev_str}, '
-                f'"use_calibration": {use_calibration_str}, '
                 f'"use_ev_load_shape": {use_ev_load_shape_str}'
                 f"{override_str}}}"
             )
@@ -1069,227 +1046,6 @@ class Project:
                     )
 
         return total_injected
-
-    # ---- Calibration engine ----
-
-    # Known source names that map to stride-data historical demand tables
-    KNOWN_CALIBRATION_SOURCES = {"entsoe", "smard", "ember"}
-    HISTORICAL_DEMAND_SOURCES = ["entsoe", "smard", "ember"]
-
-    def _load_calibration_load_shape(self, scenario: Scenario, dataset_dir: Path) -> bool:
-        """Load the calibration load shape into a DuckDB table.
-
-        If calibration is disabled (load_shape is None), does nothing.
-        For known source names, resolves from stride-data.
-        For file paths, reads the CSV and validates.
-
-        Returns True if calibration data was loaded, False otherwise.
-        """
-        config = self._config.calibration
-        if config.load_shape is None:
-            return False
-
-        shape_str = str(config.load_shape)
-
-        if shape_str in self.KNOWN_CALIBRATION_SOURCES:
-            df_or_none = self._resolve_historical_demand(source=shape_str, dataset_dir=dataset_dir)
-            if df_or_none is None:
-                return False  # fallback to uncalibrated — warning already logged
-            df = df_or_none
-        else:
-            path = Path(shape_str)
-            df = pd.read_csv(path, parse_dates=["timestamp"])
-
-        # Validate required columns
-        required_cols = {"timestamp", "total_load_mwh"}
-        missing = required_cols - set(df.columns)
-        if missing:
-            msg = (
-                f"Calibration CSV is missing required columns: {missing}. "
-                f"Found: {list(df.columns)}"
-            )
-            raise InvalidParameter(msg)
-
-        # Validate row count: 8784 for leap years, 8760 otherwise.
-        expected_rows = 8784 if calendar.isleap(self._config.weather_year) else 8760
-        if len(df) != expected_rows:
-            msg = (
-                f"Calibration data must have {expected_rows} rows, "
-                f"got {len(df)} for weather_year {self._config.weather_year}"
-            )
-            raise InvalidParameter(msg)
-
-        # Check year consistency — raise error on mismatch (user-provided CSV only;
-        # entsoe path filters by weather_year automatically)
-        if shape_str not in self.KNOWN_CALIBRATION_SOURCES:
-            csv_year = df["timestamp"].dt.year.iloc[0]
-            if csv_year != self._config.weather_year:
-                msg = (
-                    f"Calibration CSV year ({csv_year}) != weather_year "
-                    f"({self._config.weather_year}). "
-                    f"The calibration SQL joins on timestamp, so mismatched years would "
-                    f"produce zero matches and silently disable calibration. "
-                    f"Use a CSV matching weather_year={self._config.weather_year}."
-                )
-                raise InvalidParameter(msg)
-
-        # Load into DuckDB as a source table accessible by dbt
-        table_name = f"{scenario.name}__calibration_load_shape__1_0_0"
-        self._con.sql("CREATE SCHEMA IF NOT EXISTS dsgrid_data")
-        self._con.sql(f"""
-            CREATE OR REPLACE TABLE dsgrid_data.{table_name} AS
-            SELECT
-                timestamp,
-                total_load_mwh
-            FROM df
-            ORDER BY timestamp
-        """)
-        logger.info(
-            "Loaded calibration load shape ({} rows) for scenario '{}'",
-            len(df),
-            scenario.name,
-        )
-        return True
-
-    def _resolve_historical_demand(
-        self, source: str, dataset_dir: Path
-    ) -> pd.DataFrame | None:
-        """Resolve historical demand load shape from a stride-data source table.
-
-        Returns DataFrame if data found, None to fall back to uncalibrated pipeline.
-        """
-        table_dir = dataset_dir / "profile_data" / f"historical_demand_{source}"
-        parquet_path = table_dir / "load_data.parquet"
-        country = self._config.country
-        year = self._config.weather_year
-
-        if not parquet_path.exists():
-            msg = (
-                f"Historical demand source '{source}' not found at {table_dir}. "
-                f"Available sources: {self._list_available_sources(dataset_dir)}"
-            )
-            raise InvalidParameter(msg)
-
-        result = self._resolve_historical_demand_static(
-            source=source, dataset_dir=dataset_dir, country=country, year=year
-        )
-        if result is not None:
-            return result
-
-        # Data not available — find alternatives and fall back
-        alternatives = self._find_alternative_sources(dataset_dir, country, year, exclude=source)
-
-        msg = (
-            f"No data in '{source}' for {country} / weather_year {year}. "
-            f"Falling back to original Castillo et al. / IMAGE load shapes (uncalibrated)."
-        )
-        if alternatives:
-            msg += f"\n  Hint: the following sources DO have {country}/{year}: {alternatives}"
-
-        logger.warning(msg)
-        return None
-
-    @staticmethod
-    def _resolve_historical_demand_static(
-        source: str, dataset_dir: Path, country: str, year: int
-    ) -> pd.DataFrame | None:
-        """Core logic for resolving historical demand (static for testability).
-
-        Supports two parquet formats:
-        - New (v2): date components (weather_year, month, day, hour)
-        - Legacy: UTC timestamp column
-
-        Returns DataFrame with 'timestamp' and 'total_load_mwh' columns, or None.
-        """
-        table_dir = dataset_dir / "profile_data" / f"historical_demand_{source}"
-        parquet_path = table_dir / "load_data.parquet"
-
-        if not parquet_path.exists():
-            return None
-
-        df = pd.read_parquet(parquet_path)
-
-        # New format: date components (weather_year, month, day, hour)
-        if "weather_year" in df.columns:
-            df = df[(df["geography"] == country) & (df["weather_year"] == year)]
-            if len(df) == 0:
-                return None
-
-            # Resolve timezone from countries.csv in the dataset directory
-            countries_csv = table_dir / "dimensions" / "countries.csv"
-            tz = Project._read_country_timezone(countries_csv, country)
-
-            # Construct TIMESTAMPTZ from components
-            df = df.copy()
-            df["timestamp"] = pd.to_datetime(
-                df[["weather_year", "month", "day", "hour"]].rename(
-                    columns={"weather_year": "year"}
-                )
-            ).dt.tz_localize(tz)
-            return df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
-
-        # Legacy format: timestamp column (backward compatibility)
-        df = df[(df["geography"] == country) & (df["timestamp"].dt.year == year)]
-        if len(df) > 0:
-            result: pd.DataFrame = df[["timestamp", "total_load_mwh"]].reset_index(drop=True)
-            return result
-        return None
-
-    @staticmethod
-    def _read_country_timezone(countries_csv: Path, country: str) -> str:
-        """Read the standard-time timezone for a country from dimensions/countries.csv."""
-        import csv
-
-        if not countries_csv.exists():
-            msg = (
-                f"Countries dimension file not found: {countries_csv}. "
-                f"Expected a CSV with 'id' and 'time_zone' columns."
-            )
-            raise InvalidParameter(msg)
-
-        with open(countries_csv) as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                if row["id"] == country:
-                    return row["time_zone"]
-        msg = f"Country '{country}' not found in {countries_csv}"
-        raise InvalidParameter(msg)
-
-    def _find_alternative_sources(
-        self, dataset_dir: Path, country: str, year: int, exclude: str
-    ) -> list[str]:
-        """Scan other historical demand tables for (country, year) availability."""
-        return self._find_alternative_sources_static(dataset_dir, country, year, exclude)
-
-    @staticmethod
-    def _find_alternative_sources_static(
-        dataset_dir: Path, country: str, year: int, exclude: str
-    ) -> list[str]:
-        """Core logic for finding alternative sources (static for testability)."""
-        alternatives = []
-        for source_name in Project.HISTORICAL_DEMAND_SOURCES:
-            if source_name == exclude:
-                continue
-            path = dataset_dir / "profile_data" / f"historical_demand_{source_name}" / "load_data.parquet"
-            if not path.exists():
-                continue
-            df = pd.read_parquet(path)
-            # New format: date components
-            if "weather_year" in df.columns:
-                if ((df["geography"] == country) & (df["weather_year"] == year)).any():
-                    alternatives.append(source_name)
-            # Legacy format: timestamp column
-            elif "timestamp" in df.columns:
-                if ((df["geography"] == country) & (df["timestamp"].dt.year == year)).any():
-                    alternatives.append(source_name)
-        return alternatives
-
-    def _list_available_sources(self, dataset_dir: Path) -> list[str]:
-        """List all historical demand source tables present in stride-data."""
-        return [
-            s for s in self.HISTORICAL_DEMAND_SOURCES
-            if (dataset_dir / "profile_data" / f"historical_demand_{s}" / "load_data.parquet").exists()
-        ]
 
     # ---- EV load shape ----
 

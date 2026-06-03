@@ -1,16 +1,3 @@
-{% if var('use_calibration', false) %}
--- Use calibrated shapes (already scaled to annual totals, with enduse decomposition)
-SELECT
-    timestamp,
-    model_year,
-    geography,
-    sector,
-    enduse AS metric,
-    value
-FROM {{ ref('calibrated_load_shapes') }}
-WHERE sector = 'Residential'
-
-{% else %}
 WITH load_shapes_filtered AS (
     -- Get temperature-adjusted load shapes for residential sector
     SELECT
@@ -83,4 +70,3 @@ JOIN scaling_factors sf
     ON ls.geography = sf.geography
     AND ls.model_year = sf.model_year
     AND ls.sector = sf.sector
-{% endif %}
