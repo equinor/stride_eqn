@@ -18,9 +18,9 @@ SELECT
     EXTRACT(YEAR FROM timestamp) AS weather_year,
     EXTRACT(MONTH FROM timestamp) AS month,
     EXTRACT(DAY FROM timestamp) AS day,
-    -- Determine if weekday or weekend (1=Monday, 7=Sunday in DuckDB)
+    -- Determine if weekday or weekend (0=Sunday, 6=Saturday in DuckDB)
     CASE 
-        WHEN DAYOFWEEK(timestamp) IN (6, 7) THEN 'weekend'
+        WHEN DAYOFWEEK(timestamp) IN (0, 6) THEN 'weekend'
         ELSE 'weekday'
     END AS day_type
 FROM {{ source('scenario', 'weather_bait') }}
