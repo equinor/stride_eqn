@@ -880,7 +880,7 @@ def compute_temperature_multipliers(
             ,EXTRACT(MONTH FROM DATE_TRUNC('day', timestamp)) AS month
             ,EXTRACT(DAY FROM DATE_TRUNC('day', timestamp)) AS day
             ,CASE
-                WHEN DAYOFWEEK(DATE_TRUNC('day', timestamp)) IN (6, 7) THEN 'weekend'
+                WHEN DAYOFWEEK(DATE_TRUNC('day', timestamp)) IN (0, 6) THEN 'weekend'
                 ELSE 'weekday'
             END AS day_type
         FROM dsgrid_data.{scenario}__weather_bait__1_0_0
